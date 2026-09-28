@@ -28,19 +28,19 @@
 
 **2. 预训练：phase-based motion tracking（DeepMimic 风格）**
 - 这是 goal-conditioned RL，goal 只有 phase $\phi$，对单动作跟踪已经足够。本体感知定义为（`sections/deepmimic.tex` + `macros.tex`）：
-$$s_t^{p}\triangleq[q_{t-4:t},\ \dot q_{t-4:t},\ \omega^{root}_{t-4:t},\ g_{t-4:t},\ a_{t-5:t-1}],\quad q,\dot q,a\in\mathbb{R}^{23},\ \omega,g\in\mathbb{R}^3$$
+$$s_t^{p}\triangleq[q_{t-4:t},\ \dot q_{t-4:t},\ \omega^{root}_ {t-4:t},\ g_{t-4:t},\ a_{t-5:t-1}],\quad q,\dot q,a\in\mathbb{R}^{23},\ \omega,g\in\mathbb{R}^3$$
 - 奖励 $r_t=\mathcal{R}(s^p_t,s^g_t)$，用 PPO 最大化 $\mathbb{E}[\sum_{t=1}^{T}\gamma^{t-1}r_t]$。
 - 训练稳定的四个要点：
   - **Asymmetric actor-critic**：critic 看得到参考动作的全局位置、root 线速度等 privileged information；actor 只用本体感知和 $\phi$，所以真机上不需要 odometry。
   - **Termination curriculum**：偏离参考超过阈值就终止，阈值从 1.5 m 逐步收紧到 0.3 m。
   - **RSI**：随机采样 $\phi$，从参考动作对应时刻的状态初始化。
-  - **奖励与 DR**：奖励分 penalty、regularization、task 三类（Table I）。DR 只用了很基础的一组：摩擦 $\mathcal U(0.2,1.1)$，P gain $\mathcal U(0.925,1.05)\times$，控制延迟 $\mathcal U(20,40)$ ms，每 10 s 推一次、$v_{xy}=0.5$ m/s（Table VI）。
+  - **奖励与 DR**：奖励分 penalty、regularization、task 三类（Table I）。DR 只用了很基础的一组：摩擦 $\mathcal U(0.2,1.1)$，P gain $\mathcal U(0.925,1.05)\times$，控制延迟 $\mathcal U(20,40)$ ms，每 10 s 推一次、 $v_{xy}=0.5$ m/s（Table VI）。
 
 **3. 训练 delta action model**（`sections/deltaA.tex`，Fig. 2b）
-- 真实数据为 $\mathcal D^r=\{s^r_0,a^r_0,\dots,s^r_T,a^r_T\}$，其中 $s_t=[p^{base}_t,v^{base}_t,\alpha^{base}_t,\omega^{base}_t,q_t,\dot q_t]$（$\alpha^{base}_t\in\mathbb{R}^4$ 为四元数，$q_t,\dot q_t\in\mathbb{R}^{23}$），由 MoCap 和机载传感器共同记录（原文未逐项说明哪个量来自哪个传感器）。
+- 真实数据为 $\mathcal D^r=\lbrace s^r_0,a^r_0,\dots,s^r_T,a^r_T\rbrace$，其中 $s_t=[p^{base}_ t,v^{base}_ t,\alpha^{base}_ t,\omega^{base}_ t,q_t,\dot q_t]$（ $\alpha^{base}_ t\in\mathbb{R}^4$ 为四元数， $q_t,\dot q_t\in\mathbb{R}^{23}$），由 MoCap 和机载传感器共同记录（原文未逐项说明哪个量来自哪个传感器）。
 - 把 $\pi^\Delta$ 当作一个 RL agent，它的"环境"是被修改过的仿真器：
 $$\Delta a_t=\pi^\Delta_\theta(s_t,a_t),\qquad s_{t+1}=f^{sim}(s_t,\ a^r_t+\Delta a_t)$$
-- 仿真机器人初始化到真实状态 $s^r_t$（原文写 "During each RL step"），然后回放真实动作加修正量。奖励衡量 $s_{t+1}$ 与 $s^r_{t+1}$ 的差距，项目和跟踪奖励同构（body position、VR 3-point、DoF position 等，Table II），另加动作幅值正则 $\exp(-\|\Delta a_t\|)-1$（原文写作 $a_t$）。优化器用 PPO。
+- 仿真机器人初始化到真实状态 $s^r_t$（原文写 "During each RL step"），然后回放真实动作加修正量。奖励衡量 $s_{t+1}$ 与 $s^r_{t+1}$ 的差距，项目和跟踪奖励同构（body position、VR 3-point、DoF position 等，Table II），另加动作幅值正则 $\exp(-\Vert\Delta a_t\Vert)-1$（原文写作 $a_t$）。优化器用 PPO。
 - 训练 horizon 在 Fig. 10b 里做了消融（0.25–1.5 s），可见这是多步 rollout，而不是逐步重置。
 - **为什么用 RL**：论文没有专门论证为什么用 RL 而不是监督学习来训练 $\pi^\Delta$。附录 D（`sections/appendix.tex`，正文引作 Section VIII-D）里有一条论证："要做多步匹配就得穿过 $f^{sim}$ 求导，这一般不可行；RL 等于做了一次 gradient-free 的多步匹配。"但它针对的是**使用** $\pi^\Delta$ 微调 policy 这一侧，比较的是 RL fine-tuning 与 fixed-point / 梯度法。把同一理由套到 $\pi^\Delta$ 的训练上，是笔者的推断。
 - 直觉例子：仿真高估了电机力量，真机跳不起来。这时 $\pi^\Delta$ 会学着削弱下肢动作，让仿真复现真机的失败。
@@ -51,39 +51,39 @@ $$s_{t+1}=f^{\text{ASAP}}(s_t,a_t)=f^{sim}\big(s_t,\ a_t+\pi^\Delta(s_t,a_t)\big
 
 **对照：两种免 RL 的用法**（附录 D，Eq. (1)–(4)；§V-B）
 - 记 $\hat\pi(s)$ 为在仿真中表现良好的 nominal policy。假设单步一致 $f^{real}(s,\pi(s))=f^{sim}(s,\pi(s)+\pi^\Delta(s,\pi(s)))$，可推出 $\pi(s)=\hat\pi(s)-\pi^\Delta(s,\pi(s))$（Eq. 2）。
-- 求解方式一是 fixed-point iteration：$y_{k+1}=\hat\pi(s)-\pi^\Delta(s,y_k)$（Eq. 3）。
-- 方式二是对 $l(y)=\|y+\pi^\Delta(s,y)-\hat\pi(s)\|^2$ 做梯度下降（Eq. 4）。
+- 求解方式一是 fixed-point iteration： $y_{k+1}=\hat\pi(s)-\pi^\Delta(s,y_k)$（Eq. 3）。
+- 方式二是对 $l(y)=\Vert y+\pi^\Delta(s,y)-\hat\pi(s)\Vert^2$ 做梯度下降（Eq. 4）。
 - 两者都是短视的单步匹配。
 
 **Baseline：DeltaDynamics**（`sections/appendix.tex` 附录 C，正文引作 Section VIII-C）
-- 学习 residual state：$s^{real}_{t+1}-s^{sim}_{t+1}=f^\Delta_\theta(s^{real}_t,a^{real}_t)$。
+- 学习 residual state： $s^{real}_ {t+1}-s^{sim}_ {t+1}=f^\Delta_\theta(s^{real}_ t,a^{real}_ t)$。
 - 用 K 步自回归 MSE 训练，K 按 schedule 逐渐增大。
 - 训练好后，把预测出的 delta 直接加到仿真状态上。
 
 ## 关键实验与证据
 
-设置：在 IsaacGym 训练。sim-to-sim 实验把 IsaacSim 和 Genesis 当作"真实世界"，共 43 个动作，分 easy/medium/hard 三档。另做了 IsaacGym → 真机 G1。指标包括：Succ（任一时刻平均 body 距离 > 0.5 m 记为失败）、$E_{g\text{-}mpjpe}$ / $E_{mpjpe}$（mm）、$E_{acc}$（mm/frame²）、$E_{vel}$（mm/frame）。
+设置：在 IsaacGym 训练。sim-to-sim 实验把 IsaacSim 和 Genesis 当作"真实世界"，共 43 个动作，分 easy/medium/hard 三档。另做了 IsaacGym → 真机 G1。指标包括：Succ（任一时刻平均 body 距离 > 0.5 m 记为失败）、 $E_{g\text{-}mpjpe}$ / $E_{mpjpe}$（mm）、 $E_{acc}$（mm/frame²）、 $E_{vel}$（mm/frame）。
 
 - **Open-loop 回放（Table III，Fig. 5）**：把测试环境的动作放回训练环境重放。
   - 1.0 s 时 IsaacSim 上的 $E_{g\text{-}mpjpe}$：OpenLoop 80.8，SysID 77.6，DeltaDynamics 68.1，ASAP 37.9。Genesis 上分别为 82.5 / 76.5 / 50.2 / 36.9。
   - 0.25 s 时各方法基本持平（19–24），说明 ASAP 的优势在长 horizon。
   - DeltaDynamics 的 $E_{mpjpe}$ 反而一直最低（1.0 s 时 IsaacSim 21.5，ASAP 22.9），但它的 $E_{g\text{-}mpjpe}$ 在 0.25 s 和 0.5 s（IsaacSim）都是最高的。Fig. 5 只画了单个踢球动作的 MPJPE 曲线，其中 DeltaDynamics 的误差随时间放大，论文把这归因于 overfitting。
 - **Closed-loop 微调（Table IV）**：
-  - Hard 档 Genesis：Vanilla 的 Succ/$E_{g\text{-}mpjpe}$ 为 82.9% / 175，SysID 100% / 186，DeltaDynamics 60.0% / 190，ASAP 100% / 129。
-  - Hard 档 IsaacSim：$E_{g\text{-}mpjpe}$ 分别为 148 / 165 / 137 / 129。
+  - Hard 档 Genesis：Vanilla 的 Succ/ $E_{g\text{-}mpjpe}$ 为 82.9% / 175，SysID 100% / 186，DeltaDynamics 60.0% / 190，ASAP 100% / 129。
+  - Hard 档 IsaacSim： $E_{g\text{-}mpjpe}$ 分别为 148 / 165 / 137 / 129。
   - ASAP 在所有设置上 Succ 都是 100%。DeltaDynamics 在 Easy-Genesis 和全部 medium/hard 设置上掉到 83.3%–60.0%（Hard 档为 IsaacSim 66.7%、Genesis 60.0%）。
   - ASAP 并非全面最优：Genesis-Easy 的 $E_{mpjpe}$ 为 Vanilla 70.1、ASAP 73.5；IsaacSim-Hard 为 Vanilla 51.6、ASAP 56.5。
   - IsaacSim 本身的 gap 很小：Easy 档 Oracle 97.5，Vanilla 107，ASAP 106。
 - **真机（Table V）**：只和 Vanilla 比。
-  - Kick（in-distribution）：$E_{g\text{-}mpjpe}$ 61.2→50.2，$E_{mpjpe}$ 43.5→40.1。
-  - LeBron "Silencer"（OOD）：$E_{g\text{-}mpjpe}$ 159→112，$E_{mpjpe}$ 55.3→47.5。
+  - Kick（in-distribution）： $E_{g\text{-}mpjpe}$ 61.2→50.2， $E_{mpjpe}$ 43.5→40.1。
+  - LeBron "Silencer"（OOD）： $E_{g\text{-}mpjpe}$ 159→112， $E_{mpjpe}$ 55.3→47.5。
   - 真机上只训练了 **4-DoF 踝关节** delta action model。理由有两个：全 23 DoF 需要 >400 条 clip，而采集时有两台 G1 损坏；G1 踝关节是连杆结构，gap 大。实际用了 100 条 clip，5 个任务各执行 30 次，另有 10 分钟 locomotion 数据（§IV-C）。
 - **消融（Fig. 10，sim-to-sim；数据量消融写明用 IsaacSim 数据、在 IsaacGym 训练 $\pi^\Delta$）**：
   - 数据量 43/430/4300/43000：closed-loop MPJPE 为 534.02 / 104.95 / 97.51 / 98.15，430 之后基本饱和。
   - 训练 horizon：正文称 open-loop 在 1.5 s 最好。但热图里 0.5 s 评测点上，1.0 s 训练 horizon 的 25.30 低于 1.5 s 的 29.98；在 0.25 / 1.0 / 1.5 s 评测点上，1.5 s 训练 horizon 最低。closed-loop 在 1.0 s 最好（97.51；不微调为 145.00）。
   - action norm 权重 0 / 0.001 / 0.01 / 0.1 / 1.0：closed-loop 为 180.97 / 169.19 / 125.90 / 97.51 / 176.52。
 - **用法对比（Fig. 11）**：RL 微调误差最低。fixed-point 和梯度法在前段就比不微调还差。
-- **和随机动作噪声比（Fig. 12）**：用 $s_{t+1}=f^{sim}(s_t,a_t+\beta\delta_a)$，$\delta_a\sim\mathcal U[0,1]$ 微调，IsaacGym→Genesis。不微调 336.1，最佳噪声约 173.5，ASAP 126.9。
+- **和随机动作噪声比（Fig. 12）**：用 $s_{t+1}=f^{sim}(s_t,a_t+\beta\delta_a)$， $\delta_a\sim\mathcal U[0,1]$ 微调，IsaacGym→Genesis。不微调 336.1，最佳噪声约 173.5，ASAP 126.9。
 - **$\pi^\Delta$ 输出幅值（Fig. 13）**：下肢大于上肢，踝 pitch 最大（0.056 / 0.054），并且左右不对称。这说明 gap 有结构，均匀噪声覆盖不了。
 
 ## 局限与论文没说的
@@ -143,7 +143,7 @@ $$s_{t+1}=f^{\text{ASAP}}(s_t,a_t)=f^{sim}\big(s_t,\ a_t+\pi^\Delta(s_t,a_t)\big
   2. 在 Genesis 中 rollout 约 430 条轨迹。Fig. 10a（用的是 IsaacSim 数据，不是 Genesis）显示 430 条时 closed-loop MPJPE 已为 104.95，4300 条为 97.51。
   3. 用 horizon 1.0 s、action norm 权重 0.1 训练 $\pi^\Delta$。
   4. 冻结 $\pi^\Delta$ 后微调 policy，回到 Genesis 评测。
-  5. 同时复现 Table III 的 0.25 / 0.5 / 1.0 s open-loop 回放，以及 Fig. 12 的随机噪声基线（$\beta=0.1$）。
+  5. 同时复现 Table III 的 0.25 / 0.5 / 1.0 s open-loop 回放，以及 Fig. 12 的随机噪声基线（ $\beta=0.1$）。
   6. 验收标准：closed-loop MPJPE 明显低于 Vanilla 和噪声微调。
 - **预计难点**：
   - $\pi^\Delta$ 的奖励权重和 horizon 敏感（Fig. 10b/c）。
@@ -153,8 +153,8 @@ $$s_{t+1}=f^{\text{ASAP}}(s_t,a_t)=f^{sim}\big(s_t,\ a_t+\pi^\Delta(s_t,a_t)\big
 
 ## 自测问题
 
-1. delta action model 的"环境""动作""奖励"分别是什么？为什么不能直接对 $\|f^{sim}(s,a^r+\Delta a)-s^r_{t+1}\|$ 做监督 / 梯度下降，而要用 PPO？
+1. delta action model 的"环境""动作""奖励"分别是什么？为什么不能直接对 $\Vert f^{sim}(s,a^r+\Delta a)-s^r_{t+1}\Vert$ 做监督 / 梯度下降，而要用 PPO？
 2. 从单步一致假设推出 $\pi(s)=\hat\pi(s)-\pi^\Delta(s,\pi(s))$。fixed-point 和梯度法为什么在 Fig. 11 中表现比不微调还差？
-3. DeltaDynamics（residual state）与 ASAP（residual action）在 open-loop 1.0 s 时，$E_{mpjpe}$ 和 $E_{g\text{-}mpjpe}$ 的排序为什么相反？这对"把 learned model 嵌进仿真器"有什么启示？
+3. DeltaDynamics（residual state）与 ASAP（residual action）在 open-loop 1.0 s 时， $E_{mpjpe}$ 和 $E_{g\text{-}mpjpe}$ 的排序为什么相反？这对"把 learned model 嵌进仿真器"有什么启示？
 4. 为什么真机上只学 4-DoF 踝关节的 $\pi^\Delta$？论文给出的理由是数据不足和踝关节连杆结构。Fig. 13 的幅值分布来自 IsaacGym→IsaacSim，不是真机数据，它能在多大程度上支持这个选择？
-5. 如果把 $\pi^\Delta$ 换成随机噪声 $\beta\delta_a$，policy 学到的是什么？为什么 Fig. 12 中噪声过大（$\beta=0.4$）反而变差？
+5. 如果把 $\pi^\Delta$ 换成随机噪声 $\beta\delta_a$，policy 学到的是什么？为什么 Fig. 12 中噪声过大（ $\beta=0.4$）反而变差？

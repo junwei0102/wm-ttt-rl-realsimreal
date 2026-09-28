@@ -21,24 +21,24 @@ DreamerV3 仍是"RSSM world model + 在 latent imagination 中训练 actor-criti
 **1. World model（RSSM）**，`sections/algorithm.tex` Eq.1：
 $$h_t=f_\phi(h_{t-1},z_{t-1},a_{t-1}),\quad z_t\sim q_\phi(z_t\mid h_t,x_t),\quad \hat z_t\sim p_\phi(\hat z_t\mid h_t),$$
 $$\hat r_t\sim p_\phi(\hat r_t\mid h_t,z_t),\quad \hat c_t\sim p_\phi(\hat c_t\mid h_t,z_t),\quad \hat x_t\sim p_\phi(\hat x_t\mid h_t,z_t)$$
-- $z_t$ 是一组 categorical（softmax）分布的采样，梯度用 straight-through 回传。$c_t\in\{0,1\}$ 是 episode continuation flag。模型状态为 $s_t=\{h_t,z_t\}$。
+- $z_t$ 是一组 categorical（softmax）分布的采样，梯度用 straight-through 回传。 $c_t\in\lbrace0,1\rbrace$ 是 episode continuation flag。模型状态为 $s_t=\lbrace h_t,z_t\rbrace$。
 - 损失（Eq.2–3），其中 $\beta_{\rm pred}=1,\ \beta_{\rm dyn}=1,\ \beta_{\rm rep}=0.1$：
 $$\mathcal L(\phi)=\mathbb E_{q_\phi}\Big[\textstyle\sum_{t=1}^T\beta_{\rm pred}\mathcal L_{\rm pred}+\beta_{\rm dyn}\mathcal L_{\rm dyn}+\beta_{\rm rep}\mathcal L_{\rm rep}\Big]$$
 $$\mathcal L_{\rm pred}=-\ln p_\phi(x_t\mid z_t,h_t)-\ln p_\phi(r_t\mid z_t,h_t)-\ln p_\phi(c_t\mid z_t,h_t)$$
-$$\mathcal L_{\rm dyn}=\max\big(1,\ \mathrm{KL}[\mathrm{sg}(q_\phi(z_t\mid h_t,x_t))\,\|\,p_\phi(z_t\mid h_t)]\big),\quad \mathcal L_{\rm rep}=\max\big(1,\ \mathrm{KL}[q_\phi(z_t\mid h_t,x_t)\,\|\,\mathrm{sg}(p_\phi(z_t\mid h_t))]\big)$$
+$$\mathcal L_{\rm dyn}=\max\big(1,\ \mathrm{KL}[\mathrm{sg}(q_\phi(z_t\mid h_t,x_t))\thinspace\Vert\thinspace p_\phi(z_t\mid h_t)]\big),\quad \mathcal L_{\rm rep}=\max\big(1,\ \mathrm{KL}[q_\phi(z_t\mid h_t,x_t)\thinspace\Vert\thinspace\mathrm{sg}(p_\phi(z_t\mid h_t))]\big)$$
   白板上讲这三点：
-  - **KL balancing**：同一个 KL 拆成两项，靠 stop-gradient 决定"谁向谁靠"。$\mathcal L_{\rm dyn}$ 让 prior（dynamics predictor）去追 posterior，权重 1；$\mathcal L_{\rm rep}$ 让 posterior 向 prior 靠、变得更可预测，权重只有 0.1，这样 representation 不会因为追求可预测而丢掉信息。
-  - **free bits**：$\max(1,\cdot)$ 表示 KL 低于 1 nat 时该项取常数，梯度为 0。这样可以避免"dynamics 容易预测、representation 却没信息"的退化解，并把优化让给 $\mathcal L_{\rm pred}$。作者认为正是"free bits + 小 $\beta_{\rm rep}$"化解了上面说的"3D 场景要强正则、像素细节游戏要弱正则"的两难。
+  - **KL balancing**：同一个 KL 拆成两项，靠 stop-gradient 决定"谁向谁靠"。 $\mathcal L_{\rm dyn}$ 让 prior（dynamics predictor）去追 posterior，权重 1； $\mathcal L_{\rm rep}$ 让 posterior 向 prior 靠、变得更可预测，权重只有 0.1，这样 representation 不会因为追求可预测而丢掉信息。
+  - **free bits**： $\max(1,\cdot)$ 表示 KL 低于 1 nat 时该项取常数，梯度为 0。这样可以避免"dynamics 容易预测、representation 却没信息"的退化解，并把优化让给 $\mathcal L_{\rm pred}$。作者认为正是"free bits + 小 $\beta_{\rm rep}$"化解了上面说的"3D 场景要强正则、像素细节游戏要弱正则"的两难。
   - **1% unimix**：encoder、dynamics predictor 和 actor 的 categorical 都取 99% 网络输出加 1% 均匀分布，防止出现零概率和无穷大的 log 概率（`sections/methods.tex` "Distributions"）；对 encoder 和 dynamics predictor 而言，这让分布不可能变成确定性的，从而避免 KL 尖峰（`sections/algorithm.tex`）。
 - 向量观测在输入 encoder 之前、以及作为 decoder 的目标时，都先做 symlog 变换（见下文 4）。
 
 **2. Critic**（Eq.4–5）。先从 replay batch 中每个 posterior 状态出发，用 actor 加 dynamics predictor $\hat z$ 想象一条轨迹，得到 $s_{1:T},a_{1:T},r_{1:T},c_{1:T}$，然后算 bootstrapped λ-return：
 $$R^\lambda_t=r_t+\gamma c_t\big((1-\lambda)v_t+\lambda R^\lambda_{t+1}\big),\quad R^\lambda_T=v_T,\qquad \mathcal L(\psi)=-\textstyle\sum_t\ln p_\psi(R^\lambda_t\mid s_t)$$
-- 超参数：$\gamma=0.997$（discount horizon 333），$\lambda=0.95$，imagination horizon $H=15$（Table 4；正文写的是 $T=16$，两处不一致）。critic 输出分布，读出值为 $v_t=\mathbb E[v_\psi(\cdot\mid s_t)]$。
-- 另外三个稳定手段：(a) critic 向自身参数的 EMA（decay 0.98）的输出做正则，作用类似 target network，但计算 return 时用的是当前 critic；(b) 在 replay 轨迹上也施加 critic loss（$\beta_{\rm repval}=0.3$），以想象得到的 $R^\lambda$ 作为起点处的 value annotation；(c) reward head 和 critic 的输出层权重初始化为 0，避免训练初期凭空"幻想"出大 reward 或大 value。
+- 超参数： $\gamma=0.997$（discount horizon 333）， $\lambda=0.95$，imagination horizon $H=15$（Table 4；正文写的是 $T=16$，两处不一致）。critic 输出分布，读出值为 $v_t=\mathbb E[v_\psi(\cdot\mid s_t)]$。
+- 另外三个稳定手段：(a) critic 向自身参数的 EMA（decay 0.98）的输出做正则，作用类似 target network，但计算 return 时用的是当前 critic；(b) 在 replay 轨迹上也施加 critic loss（ $\beta_{\rm repval}=0.3$），以想象得到的 $R^\lambda$ 作为起点处的 value annotation；(c) reward head 和 critic 的输出层权重初始化为 0，避免训练初期凭空"幻想"出大 reward 或大 value。
 
 **3. Actor**（Eq.6–7）。离散和连续动作都用 REINFORCE，不像 DreamerV1 那样沿 dynamics 反传：
-$$\mathcal L(\theta)=-\textstyle\sum_t\mathrm{sg}\!\Big(\frac{R^\lambda_t-v_\psi(s_t)}{\max(1,S)}\Big)\log\pi_\theta(a_t\mid s_t)+\eta\,\mathrm H[\pi_\theta(a_t\mid s_t)],\qquad S=\mathrm{EMA}\big(\mathrm{Per}(R^\lambda,95)-\mathrm{Per}(R^\lambda,5),\ 0.99\big)$$
+$$\mathcal L(\theta)=-\textstyle\sum_t\mathrm{sg}\negthinspace\Big(\frac{R^\lambda_t-v_\psi(s_t)}{\max(1,S)}\Big)\log\pi_\theta(a_t\mid s_t)+\eta\thinspace\mathrm H[\pi_\theta(a_t\mid s_t)],\qquad S=\mathrm{EMA}\big(\mathrm{Per}(R^\lambda,95)-\mathrm{Per}(R^\lambda,5),\ 0.99\big)$$
 - 被归一化的是 **return 的尺度**，不是 advantage。分母取 $\max(1,S)$，意思是只把大 return 缩小，小于 $L=1$ 的 return 保持原样，避免在稀疏奖励时放大近零的噪声。这样固定的 $\eta=3\times10^{-4}$ 就能自动做到"奖励稀疏时多探索、奖励够得着时多利用"。用 5–95 百分位而不是 min/max，是为了对随机环境中的离群 episode 稳健。
 - 注意：Eq.6 字面上写的是 $+\eta\mathrm H$，按最小化理解会降低熵，和正文"用熵正则鼓励探索"的说法矛盾，应理解为 $-\eta\mathrm H$。这是我的判断，论文没有更正。
 
@@ -49,7 +49,7 @@ $$\mathrm{symlog}(x)=\mathrm{sign}(x)\ln(|x|+1),\quad \mathrm{symexp}(x)=\mathrm
 
 **5. 工程配方**（`sections/methods.tex`，Table 4）
 - 网络：block-diagonal GRU（8 blocks）、RMSNorm + SiLU。
-- 优化：AGC（clip 阈值为权重范数的 30%），加 LaProp（$\epsilon=10^{-20}$，先做 RMSProp 归一化再加 momentum）；lr $4\times10^{-5}$。
+- 优化：AGC（clip 阈值为权重范数的 30%），加 LaProp（ $\epsilon=10^{-20}$，先做 RMSProp 归一化再加 momentum）；lr $4\times10^{-5}$。
 - 数据：batch $16\times64$；uniform replay + online queue，容量 $5\times10^6$；latent state 写回 replay。
 - 不使用任何 annealing、prioritized replay、weight decay 或 dropout。作者提到 prioritized replay 能进一步提分，但为了实现简单没有用。
 - 训练量用 replay ratio 控制。例如 Atari 上 replay ratio 32、action repeat 4、batch $16\times64$，折合每 128 个 env step 做 1 次梯度更新，200M 步总共约 1.5M 次更新。
@@ -93,7 +93,7 @@ $$\mathrm{symlog}(x)=\mathrm{sign}(x)\ln(|x|+1),\quad \mathrm{symexp}(x)=\mathrm
 - **model 误差没有量化**。只给了开环视频预测的定性图（Figure 4、Figure 7），没有 compounding error 的指标。imagination 只有 15 步，长程部分靠 critic bootstrap。
 - **没测的 setting**：真实机器人（DMC 都是仿真）、offline RL、multi-task/迁移、动力学随时间变化的非平稳环境、部署期分布偏移。每个任务都从零训练，没有测跨任务复用 world model。
 - **算力门槛**。单次运行在 Atari 上是 7.7 GPU days，ProcGen 16.1，Minecraft 8.9（Table 2，口径应为单任务单 seed，论文没有明说）。全文 150 多个任务 × 多 seed 的总算力论文没有报告。
-- **文本不一致**：$T=16$ 与 $H=15$；Eq.6 中熵项的符号；$\mathcal L_{\rm pred}$ 段落说 reward 用 symlog squared loss，后文又说 reward 用 symexp twohot。复现时应以代码为准。
+- **文本不一致**： $T=16$ 与 $H=15$；Eq.6 中熵项的符号； $\mathcal L_{\rm pred}$ 段落说 reward 用 symlog squared loss，后文又说 reward 用 symexp twohot。复现时应以代码为准。
 
 ## 在脉络中的位置
 
@@ -129,5 +129,5 @@ $$\mathrm{symlog}(x)=\mathrm{sign}(x)\ln(|x|+1),\quad \mathrm{symexp}(x)=\mathrm
 1. $\mathcal L_{\rm dyn}$ 和 $\mathcal L_{\rm rep}$ 是同一个 KL，为什么要用 stop-gradient 拆开，并给出 1 : 0.1 的权重？KL 低于 1 nat 时 free bits 让梯度变成什么？它防止的是哪种退化解？
 2. 把 advantage 除以它的 std，和把 return 除以 $\max(1,S)$，在"稀疏奖励、return 几乎全为 0"时分别会发生什么？为什么用 5–95 百分位而不是 min/max？
 3. 推导 twohot 交叉熵对 logits 的梯度，说明为什么它与目标值 $y$ 的量级无关；对比直接对 $y$ 做 MSE 时的梯度。
-4. 写出 imagination 中 λ-return 的递推式，说明 $c_t$、$\gamma$、$\lambda$ 和 $R^\lambda_T=v_T$ 各自的作用。为什么 horizon 只有 15 步也能处理 333 步的有效 discount horizon？
+4. 写出 imagination 中 λ-return 的递推式，说明 $c_t$、 $\gamma$、 $\lambda$ 和 $R^\lambda_T=v_T$ 各自的作用。为什么 horizon 只有 15 步也能处理 333 步的有效 discount horizon？
 5. learning signal 消融（Figure 6b）说明 representation 主要由哪种梯度塑形？这对"部署时用自监督损失做 test-time adaptation"意味着什么？又有什么风险？

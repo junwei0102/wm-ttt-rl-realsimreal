@@ -18,25 +18,25 @@ DreamZero 把 14B 的 image-to-video 扩散模型（Wan2.1-I2V-14B）改造成 W
 
 **1. 分解视角**（`main.tex` Eq.1）：
 
-$$\pi_0(\mathbf o_{l:l+H},\mathbf a_{l:l+H}\mid \mathbf o_{0:l},\mathbf c,\mathbf q_l)=\underbrace{\pi_0(\mathbf o_{l:l+H}\mid \mathbf o_{0:l},\mathbf c,\mathbf q_l)}_{\text{video prediction}}\ \underbrace{\pi_0(\mathbf a_{l:l+H}\mid \mathbf o_{0:l+H},\mathbf q_l)}_{\text{IDM}}$$
+$$\pi_0(\mathbf o_{l:l+H},\mathbf a_{l:l+H}\mid \mathbf o_{0:l},\mathbf c,\mathbf q_l)=\underbrace{\pi_0(\mathbf o_{l:l+H}\mid \mathbf o_{0:l},\mathbf c,\mathbf q_l)}_ {\text{video prediction}}\ \underbrace{\pi_0(\mathbf a_{l:l+H}\mid \mathbf o_{0:l+H},\mathbf q_l)}_ {\text{IDM}}$$
 
 论文此处引用的 LingBot-VA（Causal World Modeling for Robot Control）和 mimic-video 用两个模型（视频预测模型 + IDM）分别拟合这两项；DreamZero 不这么做，而是用一个模型端到端学联合分布。作者的论点是：视频预测的能力大部分已经从 web 视频预训练里继承过来，机器人数据只需要教两件事——机器人本体长什么样、怎么动（视频侧），以及隐式的 IDM。IDM 要覆盖各种各样的 state-action 对应关系，所以数据多样性比重复次数更重要（这是 §5.2 Q1 给出的解释）。
 
 **2. 架构**（Figure 4，§3.1、§4.1）：主干是 Wan2.1 的 DiT，在它上面只加了 state encoder、action encoder 和 action decoder，尽量少引入新参数。VAE、文本编码器、图像编码器都冻结，训练时更新全部 DiT block 和新增模块。作者在脚注里提到试过 LoRA，效果不如全量更新。
 
 **3. Chunk-wise 自回归 + teacher forcing**（§3.1，Appendix C）
-- 每个 chunk 含 $K=2$ 个 latent frames，默认最多 $M=4$ 个 chunk。AgiBot 的设置是视频 5 FPS、动作 30Hz、$H=48$；DROID 是 5 FPS、15Hz、$H=24$。两者一个 chunk 都覆盖 1.6 s。最大上下文是 8 个 latent frames，约等于 33 帧原始图像、6.6 s。
-- 加噪方式（Eq.2）。注意这里的约定是 $t=1$ 为干净、$t=0$ 为纯噪声：
+- 每个 chunk 含 $K=2$ 个 latent frames，默认最多 $M=4$ 个 chunk。AgiBot 的设置是视频 5 FPS、动作 30Hz、 $H=48$；DROID 是 5 FPS、15Hz、 $H=24$。两者一个 chunk 都覆盖 1.6 s。最大上下文是 8 个 latent frames，约等于 33 帧原始图像、6.6 s。
+- 加噪方式（Eq.2）。注意这里的约定是 $t=1$ 为干净、 $t=0$ 为纯噪声：
 
 $$\mathbf z^k_{t_k}=t_k\mathbf z^k_1+(1-t_k)\mathbf z^k_0,\qquad \mathbf a^k_{t_k}=t_k\mathbf a^k_1+(1-t_k)\mathbf a^k_0,\qquad \mathbf z^k_0,\mathbf a^k_0\sim\mathcal N(0,I)$$
 
   同一个 chunk 里，视频和动作**共享** $t_k$。作者说这样训练初期收敛更快；UWM 等工作则给两个模态各自独立的 timestep。不同 chunk 的 $t_k$ 独立采样，Algorithm 1 中是 $t_k\sim\mathcal U(0,1)$。
 - 训练目标（Eq.3）：
 
-$$\mathcal L(\theta)=\mathbb E\Big[\tfrac1K\sum_{k}w(t_k)\big\|\mathbf u_\theta([\mathbf z^k_{t_k},\mathbf a^k_{t_k}];\mathcal C_k,\mathbf c,\mathbf q_k,t_k)-\mathbf v^k\big\|^2\Big],\qquad \mathbf v^k=[\mathbf z^k_1,\mathbf a^k_1]-[\mathbf z^k_0,\mathbf a^k_0]$$
+$$\mathcal L(\theta)=\mathbb E\Big[\tfrac1K\sum_{k}w(t_k)\big\Vert\mathbf u_\theta([\mathbf z^k_{t_k},\mathbf a^k_{t_k}];\mathcal C_k,\mathbf c,\mathbf q_k,t_k)-\mathbf v^k\big\Vert^2\Big],\qquad \mathbf v^k=[\mathbf z^k_1,\mathbf a^k_1]-[\mathbf z^k_0,\mathbf a^k_0]$$
 
   正文说做 trajectory-level update，即一条轨迹只做一次前向（Algorithm 1 的伪代码却写成逐 chunk 循环、每个 chunk 更新一次 $\theta$，与正文不一致）。token 序列排成 `[C0, Z1, Y1, C1, Z2, Y2, C2, Z3, Y3]`，其中 C 是干净帧、Z 是带噪视频、Y 是带噪动作。block-causal mask 保证第 $k$ 个带噪 chunk 只能看到 $C_0,\dots,C_{k-1}$ 和它自己（Figure 14a）。这和 LLM 的 teacher forcing 一样，所有 chunk 的损失在一次前向里并行算完。
-- **记号上的两处不一致**：Eq.3 的归一化写成 $1/K$，但附录里 $K$ 表示每个 chunk 的 latent 帧数，chunk 数其实是 $M$。另外，$\mathcal C_k$ 的定义（正文和 Algorithm 1）里包含干净动作 $\mathbf a^j_1$，可 Figure 14 的 mask 和 Algorithm 2 里的上下文只有干净视频帧（原文 "Pass clean video, no action/state"），正文也说"autoregressive modeling only for the video modality"。理解时以 Figure 14 和 Algorithm 2 为准：动作不做自回归。
+- **记号上的两处不一致**：Eq.3 的归一化写成 $1/K$，但附录里 $K$ 表示每个 chunk 的 latent 帧数，chunk 数其实是 $M$。另外， $\mathcal C_k$ 的定义（正文和 Algorithm 1）里包含干净动作 $\mathbf a^j_1$，可 Figure 14 的 mask 和 Algorithm 2 里的上下文只有干净视频帧（原文 "Pass clean video, no action/state"），正文也说"autoregressive modeling only for the video modality"。理解时以 Figure 14 和 Algorithm 2 为准：动作不做自回归。
 
 **4. 闭环推理**（Algorithm 2，Figure 4 右）
 1. 用初始观测 prefill KV cache。
@@ -52,9 +52,9 @@ $$\mathcal L(\theta)=\mathbb E\Big[\tfrac1K\sum_{k}w(t_k)\big\|\mathbf u_\theta(
 - **实现级**：torch.compile + CUDA Graphs；cuDNN attention；scheduler 从 CPU 搬到 GPU；NVFP4 量化（QKV 和 Softmax 保留 FP8）。
 - **模型级 DreamZero-Flash**：共享 $t$ 训练时，模型只见过"视频和动作噪声水平相同"的样本；而 1 步推理要求它在视频上下文仍然很噪的情况下直接给出干净动作，这就是 train-test mismatch。Flash 把两个模态的 timestep 解耦（Appendix D Eq.4–6）：
 
-$$t^{\text{video}}_k=1-\eta,\quad \eta\sim\mathrm{Beta}(7,1),\qquad t^{\text{action}}_k\sim\mathcal U(0,1)$$
+$$t^{\text{video}}_ k=1-\eta,\quad \eta\sim\mathrm{Beta}(7,1),\qquad t^{\text{action}}_ k\sim\mathcal U(0,1)$$
 
-  这样 $\mathbb E[t^{\text{video}}]=0.125$，训练样本里的视频大多是高噪状态，模型必须学会"从噪视频上下文里预测干净动作"。Flash 作为主训练之后的最后一个阶段来做。注意 Algorithm 1 里写成 $t_{vid}\sim\mathrm{Beta}(7,1)$，漏了 "$1-$"（照字面均值是 0.875，偏向干净），以 §3.2 和 Appendix D Eq.5 为准。
+  这样 $\mathbb E[t^{\text{video}}]=0.125$，训练样本里的视频大多是高噪状态，模型必须学会"从噪视频上下文里预测干净动作"。Flash 作为主训练之后的最后一个阶段来做。注意 Algorithm 1 里写成 $t_{vid}\sim\mathrm{Beta}(7,1)$，漏了 " $1-$"（照字面均值是 0.875，偏向干净），以 §3.2 和 Appendix D Eq.5 为准。
 - **动作平滑**：先用 cubic 插值上采样到 2×，再过 Savitzky-Golay 滤波（窗口 21、3 阶），最后降采样回原分辨率。
 - **累积加速**（Table 1）：H100 上最终 9.6×。GB200 上，系统级加实现级优化累计 16.6×，再加 Flash 达到 38×，单个 chunk 从 5.7 s 降到 150 ms。Discussion 里说 7Hz 需要 2 张 GB200。除 DiT caching 和量化外，其余优化都与基线数学等价。
 
@@ -150,7 +150,7 @@ $$t^{\text{video}}_k=1-\eta,\quad \eta\sim\mathrm{Beta}(7,1),\qquad t^{\text{act
 ## 自测问题
 
 1. 写出 Eq.1 的分解。DreamZero 为什么不分开训练视频模型和 IDM？按作者的解释，500h 机器人数据主要在教哪一项？这又怎么解释"diverse 数据优于 repetitive 数据"？
-2. 画出 $M=3$ 时训练用的 attention mask：$Y_2$ 能 attend 到哪些 token？推理时把 $C_k$ 换成真实观测，为什么就能消除 exposure bias？纯视频生成为什么做不到这一点？Dreamer 的 imagination rollout 与此有何不同？
-3. 用共享 timestep 训练的 DreamZero 做 1 步推理，train-test mismatch 具体在哪里？Flash 取 $\eta\sim\mathrm{Beta}(7,1)$、$t^{\text{video}}=1-\eta$，求 $\mathbb E[t^{\text{video}}]$，并说明在"$t=1$ 为干净"的约定下，这个值意味着什么样的训练样本。
-4. 用 AgiBot 的设置（5 FPS、30Hz、$K=2$、$H=48$）推出一个 chunk 覆盖多长时间。异步执行为什么能把延迟预算放宽到约 200 ms？DiT caching 为什么不属于"数学等价"的优化？
+2. 画出 $M=3$ 时训练用的 attention mask： $Y_2$ 能 attend 到哪些 token？推理时把 $C_k$ 换成真实观测，为什么就能消除 exposure bias？纯视频生成为什么做不到这一点？Dreamer 的 imagination rollout 与此有何不同？
+3. 用共享 timestep 训练的 DreamZero 做 1 步推理，train-test mismatch 具体在哪里？Flash 取 $\eta\sim\mathrm{Beta}(7,1)$、 $t^{\text{video}}=1-\eta$，求 $\mathbb E[t^{\text{video}}]$，并说明在" $t=1$ 为干净"的约定下，这个值意味着什么样的训练样本。
+4. 用 AgiBot 的设置（5 FPS、30Hz、 $K=2$、 $H=48$）推出一个 chunk 覆盖多长时间。异步执行为什么能把延迟预算放宽到约 200 ms？DiT caching 为什么不属于"数学等价"的优化？
 5. Table 2 的跨本体数据只参与视频损失，它改进的是分解中的哪一项？要把 38.3→55.4 的增益归因于 YAM 视频本身，还缺哪个对照实验？

@@ -32,24 +32,24 @@
 
 **1. World model（RSSM，`sections/method.tex` Eq.1）**
 
-$$\mathrm{enc}_\theta(s_t\mid s_{t-1},a_{t-1},x_t),\quad \mathrm{dyn}_\theta(s_t\mid s_{t-1},a_{t-1}),\quad \mathrm{dec}_\theta(s_t)\approx x_t,\quad \mathrm{rew}_\theta(s_{t+1})\approx r_t$$
+$$\mathrm{enc}_ \theta(s_t\mid s_{t-1},a_{t-1},x_t),\quad \mathrm{dyn}_ \theta(s_t\mid s_{t-1},a_{t-1}),\quad \mathrm{dec}_ \theta(s_t)\approx x_t,\quad \mathrm{rew}_ \theta(s_{t+1})\approx r_t$$
 
 - $s_t$ 包含确定性的 recurrent state $h_t$ 和随机表示 $z_t$。encoder 是 posterior，能看到当前观测 $x_t$；dynamics 是 prior，只看历史和动作。imagination 时只用 prior。
-- **传感器融合**：encoder 把所有模态融合成 $z_t$，$z_t$ 是离散 code，共 32 个 latent、每个 32 类（附录 D 超参数表）。论文没有给出融合网络的具体结构。
+- **传感器融合**：encoder 把所有模态融合成 $z_t$， $z_t$ 是离散 code，共 32 个 latent、每个 32 类（附录 D 超参数表）。论文没有给出融合网络的具体结构。
 - decoder 只提供表示学习信号，并方便人查看模型预测，behavior learning 用不到它。Figure B.1 解码了 imagined 轨迹，可以看到 UR5 场景里静止的橙球变成绿球的幻觉。
 - **损失**：本文只说各组件"通过 stochastic backpropagation 联合优化"，没写公式，附录 D 超参数表只给出 KL balancing = 0.8。按本文所基于的 DreamerV2，损失形式如下（**这是 DreamerV2 的公式，不是本文的**）：
-$$\mathcal{L}(\theta)=\mathbb{E}\Big[\textstyle\sum_t -\ln p_\theta(x_t\mid s_t)-\ln p_\theta(r_t\mid s_t)+\alpha\,\mathrm{KL}[\mathrm{sg}(q)\,\|\,p]+(1-\alpha)\,\mathrm{KL}[q\,\|\,\mathrm{sg}(p)]\Big]$$
-  其中 $q$ 是 encoder posterior，$p$ 是 dynamics prior，$\alpha=0.8$。这样 KL 项主要把 prior 拉向 posterior，而不是让 posterior 迁就 prior。注意这是简化写法：DreamerV2 原式还有 discount 预测项 $-\ln p_\theta(\gamma_t\mid s_t)$ 和 KL 缩放系数 $\beta$，本文是否使用以及取值都没有报告（原文未报告）。
+$$\mathcal{L}(\theta)=\mathbb{E}\Big[\textstyle\sum_t -\ln p_\theta(x_t\mid s_t)-\ln p_\theta(r_t\mid s_t)+\alpha\thinspace\mathrm{KL}[\mathrm{sg}(q)\thinspace\Vert\thinspace p]+(1-\alpha)\thinspace\mathrm{KL}[q\thinspace\Vert\thinspace\mathrm{sg}(p)]\Big]$$
+  其中 $q$ 是 encoder posterior， $p$ 是 dynamics prior， $\alpha=0.8$。这样 KL 项主要把 prior 拉向 posterior，而不是让 posterior 迁就 prior。注意这是简化写法：DreamerV2 原式还有 discount 预测项 $-\ln p_\theta(\gamma_t\mid s_t)$ 和 KL 缩放系数 $\beta$，本文是否使用以及取值都没有报告（原文未报告）。
 
 **2. Actor-critic in imagination（Eq.2–4）**
 
-- 从 replay 子序列中的每个 posterior 状态出发（DreamerV2 的做法，本文没有明写），用 dynamics prior 加 actor 往前 roll $H$ 步，reward 由 $\mathrm{rew}_\theta$ 预测。$H$ 在正文写的是 16，附录 D 超参数表写的是 15。起点数是 $32\times32=1024$，乘以约 16 步约为 16K，正好对应正文"单 GPU 上典型 batch 16K"的说法（这个对应是我推算的）。
+- 从 replay 子序列中的每个 posterior 状态出发（DreamerV2 的做法，本文没有明写），用 dynamics prior 加 actor 往前 roll $H$ 步，reward 由 $\mathrm{rew}_ \theta$ 预测。 $H$ 在正文写的是 16，附录 D 超参数表写的是 15。起点数是 $32\times32=1024$，乘以约 16 步约为 16K，正好对应正文"单 GPU 上典型 batch 16K"的说法（这个对应是我推算的）。
 - **λ-return**（Eq.3）：
-$$V^\lambda_t \doteq r_t+\gamma\big((1-\lambda)\,v(s_{t+1})+\lambda V^\lambda_{t+1}\big),\qquad V^\lambda_H\doteq v(s_H)$$
-  它对 $N\in[1,H-1]$ 的所有 N-step return 做指数加权平均。末端的 bootstrap 项让 actor 能考虑 $H$ 步之外的 reward。$\gamma=\lambda=0.95$。计算 λ-return 用的是一个缓慢更新的 target critic，更新间隔为 100（附录 D 超参数表）。
+$$V^\lambda_t \doteq r_t+\gamma\big((1-\lambda)\thinspace v(s_{t+1})+\lambda V^\lambda_{t+1}\big),\qquad V^\lambda_H\doteq v(s_H)$$
+  它对 $N\in[1,H-1]$ 的所有 N-step return 做指数加权平均。末端的 bootstrap 项让 actor 能考虑 $H$ 步之外的 reward。 $\gamma=\lambda=0.95$。计算 λ-return 用的是一个缓慢更新的 target critic，更新间隔为 100（附录 D 超参数表）。
 - **Critic**：回归 λ-return。论文只有文字描述，没有给公式；按 DreamerV2 的写法是平方误差 $\mathbb{E}[\sum_t\frac12(v(s_t)-\mathrm{sg}(V^\lambda_t))^2]$（这是 DreamerV2 的形式，不是本文给出的）。
 - **Actor**（Eq.4，这里写的是 Reinforce 形式）：
-$$\mathcal{L}(\pi)\doteq-\mathbb{E}_{\pi,p_\phi}\Big[\textstyle\sum_{t=1}^{H}\ln\pi(a_t\mid s_t)\,\mathrm{sg}\big(V^\lambda_t-v(s_t)\big)+\eta\,\mathrm{H}[\pi(a_t\mid s_t)]\Big]$$
+$$\mathcal{L}(\pi)\doteq-\mathbb{E}_ {\pi,p_\phi}\Big[\textstyle\sum_{t=1}^{H}\ln\pi(a_t\mid s_t)\thinspace\mathrm{sg}\big(V^\lambda_t-v(s_t)\big)+\eta\thinspace\mathrm{H}[\pi(a_t\mid s_t)]\Big]$$
   离散动作（UR5、XArm）用 Reinforce，以 $v(s_t)$ 作 baseline。连续动作（A1、Sphero）用 reparameterization：直接最大化 $V^\lambda$，梯度沿可微的 dynamics 反传到动作。熵正则项 $\eta$ 防止策略坍缩成确定性策略，但附录 D 超参数表没有列出 $\eta$ 的数值。
 - **梯度隔离**：actor 和 critic 的梯度不回传到 world model。否则策略会把模型"改"成对自己有利的样子，得到 incorrect and overly optimistic 的预测。
 
@@ -64,8 +64,8 @@ $$\mathcal{L}(\pi)\doteq-\mathbb{E}_{\pi,p_\phi}\Big[\textstyle\sum_{t=1}^{H}\ln
 所有任务共用一套超参数（附录 D 超参数表，`tables/hparams.tex`）：MLP 4×512，LayerNorm+ELU，RSSM 512，lr $10^{-4}$，Adam $\epsilon=10^{-6}$，梯度裁剪 100，Start learning $10^4$。
 
 - **A1 行走**（§3.1，Figure 4/8）：机器人从背朝下开始，全程没有 reset。约 5 分钟学会翻身落地，再过约 20 分钟学会站立，约 1 小时学会 pronking 步态，按目标速度前进。SAC 只学会翻身，既不会站也不会走，训练中还要人帮它摆脱腿部死锁。行走学会后，作者用长杆反复把机器人推倒；额外在线学习 10 分钟后，它能扛住轻推，被重推后也能迅速翻身站起。reward 见 Eq.5，共五项，每一项只有在它前面的各项都达到 0.7 以上时才激活，否则置 0：
-$$r^{\text{upr}}=\tfrac{\hat z^T[0,0,1]-1}{2},\quad r^{\text{hip}}=1-\tfrac14\|q^{\text{hip}}+0.2\|_1,\quad r^{\text{shoulder}}=1-\tfrac14\|q^{\text{shoulder}}+0.2\|_1$$
-$$r^{\text{knee}}=1-\tfrac14\|q^{\text{knee}}-1.0\|_1,\quad r^{\text{velocity}}=5\Big(\tfrac{\max(0,{}^{\mathcal B}v_x)}{\|{}^{\mathcal B}v\|_2}\,\mathrm{clip}({}^{\mathcal B}v_x/0.3,-1,1)+1\Big)$$
+$$r^{\text{upr}}=\tfrac{\hat z^T[0,0,1]-1}{2},\quad r^{\text{hip}}=1-\tfrac14\Vert q^{\text{hip}}+0.2\Vert_1,\quad r^{\text{shoulder}}=1-\tfrac14\Vert q^{\text{shoulder}}+0.2\Vert_1$$
+$$r^{\text{knee}}=1-\tfrac14\Vert q^{\text{knee}}-1.0\Vert_1,\quad r^{\text{velocity}}=5\Big(\tfrac{\max(0,{}^{\mathcal B}v_x)}{\Vert{}^{\mathcal B}v\Vert_2}\thinspace\mathrm{clip}({}^{\mathcal B}v_x/0.3,-1,1)+1\Big)$$
   Figure 4 标注最大 reward 为 14，图中是**单次运行**，阴影表示每个时间 bin 内的 1 个标准差。
 - **UR5 多物体 pick and place**（§3.2，Figure 5）：场景里有 3 个球。Z 轴只在持物时可以移动，夹爪到了正确 bin 上方会自动张开。Dreamer 在 8 小时内达到平均 2.5 objects/min，前约 2 小时几乎没有进展，之后才开始改善。Rainbow 和 PPO 只学会"抓起后在原 bin 丢下"的短视行为。人类基线来自录制 3 名操作者用摇杆操作 20 分钟（没说是每人 20 分钟还是合计）；Figure 5 里人类虚线大约在 3 附近（这是图上读数）。
 - **XArm pick and place**（§3.3，Figure 6）：软物体用绳子系在夹爪上，观测多了 depth。Dreamer 10 小时达到 3.1 objects/min，与人类相当；Rainbow 停在"原 bin 抓放"的局部最优。作者还观察到 Dreamer 会拉绳子把物体从角落拽出来。
@@ -83,10 +83,10 @@ $$r^{\text{knee}}=1-\tfrac14\|q^{\text{knee}}-1.0\|_1,\quad r^{\text{velocity}}=
 2. **baseline 可能吃亏**：SAC、Rainbow、PPO 的超参数都没有报告；图像和 proprio 的融合方式是把 proprio broadcast 成平面拼到 RGB 通道上；训练预算（墙钟时间）与 Dreamer 相同，而作者自己也推测 Rainbow 和 PPO 失败是因为需要更多经验。Sphero 上 DrQv2 与 Dreamer 打平，说明优势因任务而异。
 3. **任务工程很重**：A1 的门控 reward 需要 base 速度和朝向，论文没说这些量怎么测。UR5 的 Z 轴只在持物时启用、到正确 bin 上方自动开爪（XArm 只说动作空间与 UR5 相同），大幅缩小了搜索空间。Sphero 的 reward 需要机器人位置，来源也没说明。另外还有人工干预：A1 走到场地边缘时被人搬回，SAC 被人解开腿部死锁。
 4. **异步训练让样本效率和硬件绑定**：由于没有 train ratio，每条样本对应多少次梯度更新取决于 GPU 吞吐和控制频率。论文没报告梯度步数和 GPU 型号，换一套硬件，"1 小时 / 8 小时"的结论未必成立。
-5. **"同一套超参数"对应的时间尺度并不相同**（以下是我的推算）：$\gamma=0.95$ 的有效视界约为 $1/(1-\gamma)=20$ 步，在 A1 上约 1 秒，在 UR5 上约 10 秒，在 XArm 上约 40 秒。同样，如果 Start learning $=10^4$ 按环境步计，XArm 要约 5.6 小时后才开始训练。Figure 6 前约 6 小时接近 0，看起来与此吻合；但 Figure A.1 里的 XArm 曲线在第 2–5 小时就已明显上升，这又与"前 5.6 小时不训练"矛盾。所以"按环境步计"这个解释并不自洽。论文没有说明这个数的单位，复现时需要核对。
+5. **"同一套超参数"对应的时间尺度并不相同**（以下是我的推算）： $\gamma=0.95$ 的有效视界约为 $1/(1-\gamma)=20$ 步，在 A1 上约 1 秒，在 UR5 上约 10 秒，在 XArm 上约 40 秒。同样，如果 Start learning $=10^4$ 按环境步计，XArm 要约 5.6 小时后才开始训练。Figure 6 前约 6 小时接近 0，看起来与此吻合；但 Figure A.1 里的 XArm 曲线在第 2–5 小时就已明显上升，这又与"前 5.6 小时不训练"矛盾。所以"按环境步计"这个解释并不自洽。论文没有说明这个数的单位，复现时需要核对。
 6. **文中有几处不一致**：
    - imagination horizon 正文写 $H=16$，附录 D 超参数表写 15。
-   - 按 Eq.5 字面，$r^{\text{upr}}\in[-1,0]$。这样五项上限合计 13，而且 $r^{\text{upr}}$ 永远达不到 0.7 的门控阈值，和 Figure 4 的"max reward 14"对不上。我怀疑原意是 $(\hat z^T[0,0,1]+1)/2$，应以代码为准。
+   - 按 Eq.5 字面， $r^{\text{upr}}\in[-1,0]$。这样五项上限合计 13，而且 $r^{\text{upr}}$ 永远达不到 0.7 的门控阈值，和 Figure 4 的"max reward 14"对不上。我怀疑原意是 $(\hat z^T[0,0,1]+1)/2$，应以代码为准。
    - Figure A.1 曲线峰值约 9 objects/min（日出前就已到约 4–5），而 Figure 6 最高约 3（图上读数），论文没说明两图是否来自同一次运行、是否用同一统计口径。
 7. **没测的 setting**：
    - 都是单任务，目标位置和目标速度固定，没有泛化测试（新物体、新目标、新地形）。

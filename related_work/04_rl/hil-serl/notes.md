@@ -9,7 +9,7 @@ HIL-SERL 是一套直接在真机上跑的视觉 RL 系统。它以 RLPD（SAC �
 
 ## 问题设定
 
-- **形式化**（`sections/methods.tex` §Preliminaries）：MDP $\{\mathcal S,\mathcal A,\rho,\mathcal P,r,\gamma\}$。状态是多路相机图像（裁剪后 resize 到 128×128）加本体感知（tcp pose/vel、F/T、夹爪状态；两个动态任务还用关节 q/dq），动作是末端 6D twist（双臂 12D，有夹爪时另加离散夹爪动作），两个动态任务则是 3 维前馈 wrench（Jenga 为 $F_x,F_z,\tau_z$，flipping 为 $F_x,F_z,\tau_y$），控制频率 10 Hz（Table 2–12）。
+- **形式化**（`sections/methods.tex` §Preliminaries）：MDP $\lbrace\mathcal S,\mathcal A,\rho,\mathcal P,r,\gamma\rbrace$。状态是多路相机图像（裁剪后 resize 到 128×128）加本体感知（tcp pose/vel、F/T、夹爪状态；两个动态任务还用关节 q/dq），动作是末端 6D twist（双臂 12D，有夹爪时另加离散夹爪动作），两个动态任务则是 3 维前馈 wrench（Jenga 为 $F_x,F_z,\tau_z$，flipping 为 $F_x,F_z,\tau_y$），控制频率 10 Hz（Table 2–12）。
 - **reward**：稀疏的二值 reward，由每个任务单独训练的 success classifier 给出。只有 Jenga 例外，由人在 episode 结束时标注（Table 11）。有夹爪的任务额外对夹爪动作加一个小的负惩罚，数值论文没给（`sections/results.tex`）。
 - **环境**：完全在真实世界训练，不用仿真器。reset 靠脚本或人工完成，初始状态在小范围内随机化（2–8 cm，部分任务不随机）。
 - **之前卡在哪**：真实世界 RL 有三个难点，sample complexity、reward 难以指定、优化不稳定（`sections/intro.tex`）。前作 SERL 只用离线 demo，聚焦 horizon 较短的简单任务，没有涉及双臂协作和动态操作（`sections/related_work.tex`）。模仿学习（BC、HG-DAgger、Diffusion Policy）受限于人类数据本身的次优，也没有从自身失败中学习的机制。
@@ -18,17 +18,17 @@ HIL-SERL 是一套直接在真机上跑的视觉 RL 系统。它以 RLPD（SAC �
 
 **1. RL 底座：RLPD**（`sections/methods.tex` Eq.1–2）。每个训练 batch 一半取自 prior data（demo buffer），一半取自在线数据（RL buffer）。critic 和 actor 按 SAC 的方式更新：
 
-$$\mathcal L_Q(\phi)=\mathbb E_{s,a,s'}\Big[\big(Q_\phi(s,a)-(r(s,a)+\gamma\,\mathbb E_{a'\sim\pi_\theta}[Q_{\bar\phi}(s',a')])\big)^2\Big]$$
+$$\mathcal L_Q(\phi)=\mathbb E_{s,a,s'}\Big[\big(Q_\phi(s,a)-(r(s,a)+\gamma\thinspace\mathbb E_{a'\sim\pi_\theta}[Q_{\bar\phi}(s',a')])\big)^2\Big]$$
 
-$$\mathcal L_\pi(\theta)=-\mathbb E_{s}\Big[\mathbb E_{a\sim\pi_\theta}[Q_\phi(s,a)]+\alpha\,\mathcal H(\pi_\theta(\cdot\mid s))\Big]$$
+$$\mathcal L_\pi(\theta)=-\mathbb E_{s}\Big[\mathbb E_{a\sim\pi_\theta}[Q_\phi(s,a)]+\alpha\thinspace\mathcal H(\pi_\theta(\cdot\mid s))\Big]$$
 
-$Q_{\bar\phi}$ 是 target network，$\alpha$ 自适应调节，策略是 Gaussian。两点需要注意：Eq.1 的 target 里没有 SAC 标准 soft backup 中的 $-\alpha\log\pi$ 项；RLPD 的 critic ensemble、UTD 比例等细节正文和补充材料都没写。
+$Q_{\bar\phi}$ 是 target network， $\alpha$ 自适应调节，策略是 Gaussian。两点需要注意：Eq.1 的 target 里没有 SAC 标准 soft backup 中的 $-\alpha\log\pi$ 项；RLPD 的 critic ensemble、UTD 比例等细节正文和补充材料都没写。
 
 **2. 系统架构**（Fig.2）。actor 进程在机器人上执行当前策略，learner 进程从两个 buffer 等量采样做 RLPD 更新，两者异步通信并定期同步参数。所有相机共用一个在 ImageNet 上预训练的 ResNet-10，各路 embedding 拼接后再和本体感知编码（64 维）合并，接 256×256 的 MLP。数据增强用 random crop。backbone 是否冻结论文没说。
 
 **3. Human-in-the-loop**（`sections/methods.tex` §3.4，全文的核心）。rollout 过程中，人可以在任意时刻 $t_i$ 接管，每次最多接管 $N$ 步，一条轨迹里可以多次接管。执行的动作为
 
-$$a^*_t=\begin{cases}a_{itv}, & \text{人在干预}\\ a_{RL}, & \text{否则}\end{cases}$$
+$$a^{\ast}_ t=\begin{cases}a_{itv}, & \text{人在干预}\cr a_{RL}, & \text{否则}\end{cases}$$
 
 数据的去向是整套方法的关键：**干预片段同时写入 demo buffer 和 RL buffer，策略自己产生的转移只写入 RL buffer。** 这样干预数据在 50/50 采样下被放大权重，而且是在策略实际访问到的错误状态附近给出的，属于 on-distribution 的纠错。它和 HG-DAgger 的区别是：纠错数据交给 RL 按 reward 优化，而不是直接监督回归（同 RLIF 的思路）。操作上的经验是：训练早期多干预，然后逐步减少；只在具体出错时纠正，其余时间让机器人自己探索。作者特别警告，不要反复用"长时间接管直到任务成功"的方式干预，这会让 value function 在训练早期被高估，导致训练不稳定（§Training Process）。
 
@@ -36,14 +36,14 @@ $$a^*_t=\begin{cases}a_{itv}, & \text{人在干预}\\ a_{RL}, & \text{否则}\en
 
 **5. 夹爪用单独的 DQN critic**（Eq.3）。连续动作 MDP $\mathcal M_1$ 和离散夹爪 MDP $\mathcal M_2$ 共享同一个状态。离散动作是 {open, close, stay}，双臂时为 $3^2=9$ 种组合。
 
-$$\mathcal L(\theta)=\mathbb E\Big[\big(r+\gamma\,Q_{\theta'}(s',\arg\max_{a'}Q_\theta(s',a'))-Q_\theta(s,a)\big)^2\Big]$$
+$$\mathcal L(\theta)=\mathbb E\Big[\big(r+\gamma\thinspace Q_{\theta'}(s',\arg\max_{a'}Q_\theta(s',a'))-Q_\theta(s,a)\big)^2\Big]$$
 
-形式上这是 Double DQN（用 online 网络选动作、target 网络评估），$\theta'$ 由 Polyak averaging 得到。训练和推理时都先从 $\pi$ 取连续动作，再对 grasp critic 的输出取 argmax 得到离散夹爪动作，两者拼接后执行。
+形式上这是 Double DQN（用 online 网络选动作、target 网络评估）， $\theta'$ 由 Polyak averaging 得到。训练和推理时都先从 $\pi$ 取连续动作，再对 grasp critic 的输出取 argmax 得到离散夹爪动作，两者拼接后执行。
 
 **6. 下游控制与表征**（Supp. D，Eq.5–7）。
 
-- **ego-centric 本体感知**：每个 episode 开始时，末端初始位姿 $\{b_0\}$ 在一个区域内均匀随机采样。之后的位姿都用相对量 $T_{b_0b_t}=T_{b_0}^{-1}T_{b_t}$ 表示。twist 动作定义在当前末端坐标系 $\{b_t\}$ 下，下发前用 adjoint 映射转到基座系：$\mathcal V'=[\mathrm{Ad}_{T_{b_t}}]\mathcal V$。这等价于把随机化施加在目标物体的相对位置上，所以目标在执行中移动时策略仍然有效（Fig.6A）。
-- **impedance controller（1000 Hz）加 reference limiting**：$F=k_p e+k_d\dot e+F_{ff}+F_{cor}$，并把误差裁剪到 $|e|\le\Delta$，使接触力上界为 $k_p|\Delta|+2k_d|\Delta|f$。这样既不需要降低增益，也能保证随机探索时的安全。两个动态任务改为直接下发前馈 wrench，经 $J^\top$ 转成关节力矩。
+- **ego-centric 本体感知**：每个 episode 开始时，末端初始位姿 $\lbrace b_0\rbrace$ 在一个区域内均匀随机采样。之后的位姿都用相对量 $T_{b_0b_t}=T_{b_0}^{-1}T_{b_t}$ 表示。twist 动作定义在当前末端坐标系 $\lbrace b_t\rbrace$ 下，下发前用 adjoint 映射转到基座系： $\mathcal V'=[\mathrm{Ad}_ {T_{b_t}}]\mathcal V$。这等价于把随机化施加在目标物体的相对位置上，所以目标在执行中移动时策略仍然有效（Fig.6A）。
+- **impedance controller（1000 Hz）加 reference limiting**： $F=k_p e+k_d\dot e+F_{ff}+F_{cor}$，并把误差裁剪到 $|e|\le\Delta$，使接触力上界为 $k_p|\Delta|+2k_d|\Delta|f$。这样既不需要降低增益，也能保证随机探索时的安全。两个动态任务改为直接下发前馈 wrench，经 $J^\top$ 转成关节力矩。
 
 **训练流程**（Fig.3）：选相机、裁剪 → 采 classifier 数据并训练 → 采 20–30 条 demo 填入 demo buffer → 在线 RLPD 训练，人适时干预，干预率逐步降到 0 → 收敛。
 
@@ -61,7 +61,7 @@ $$\mathcal L(\theta)=\mathbb E\Big[\big(r+\gamma\,Q_{\theta'}(s',\arg\max_{a'}Q_
 
   从表中能读出三点：(i) 从零开始的 RL（既无 demo 也无干预）在三个任务上全是 0，说明人类先验数据必不可少；但这个消融同时去掉了 demo 和干预，并没有单独隔离 demo 的作用。(ii) 在线干预对 Dashboard（0→100）和 RAM（48→100）是决定性的，对以开环为主的 flipping 则不需要。(iii) BC 的 demo 从 20 条加到 200 条，flipping 成功率反而从 47% 变成 46%，说明加 demo 解决不了问题。
 - **学习曲线**（Fig.5，RAM / USB / IKEA top panel / Dashboard 四个任务，按 20 个 episode 滑动平均）：HIL-SERL 的干预率降到 0%，cycle time 持续下降。按 caption 的说法，HG-DAgger 的干预率没有持续下降，cycle time 也没有改善（不过从图上看，Dashboard 的 HG-DAgger cycle time 其实也有下降）。
-- **机制分析**（`sections/analysis.tex`）：以 RAM 任务为例，状态访问热力图逐渐收成一个 "funnel"（Fig.7）。作者把 "critical states" 定义为 Q 对动作扰动方差大的状态（Eq.4）：$\mathrm{Var}[Q]=\mathbb E_{\epsilon\sim\mathcal U[-c,c]}[(Q(s,a+\epsilon)-\mathbb E_\epsilon Q(s,a+\epsilon))^2]$，取 $c=0.2$，蒙特卡洛采样 100 次。funnel 内部的状态 Q 值高、方差也大。HG-DAgger 的访问分布更弥散。另外，Gaussian 策略的 std 能区分两类控制方式（Fig.8）：RAM 起始 std 约 0.6，接近目标时快速下降，对应 reactive 策略；Jenga 的 std 始终接近 0，对应 predictive 的开环策略。
+- **机制分析**（`sections/analysis.tex`）：以 RAM 任务为例，状态访问热力图逐渐收成一个 "funnel"（Fig.7）。作者把 "critical states" 定义为 Q 对动作扰动方差大的状态（Eq.4）： $\mathrm{Var}[Q]=\mathbb E_{\epsilon\sim\mathcal U[-c,c]}[(Q(s,a+\epsilon)-\mathbb E_\epsilon Q(s,a+\epsilon))^2]$，取 $c=0.2$，蒙特卡洛采样 100 次。funnel 内部的状态 Q 值高、方差也大。HG-DAgger 的访问分布更弥散。另外，Gaussian 策略的 std 能区分两类控制方式（Fig.8）：RAM 起始 std 约 0.6，接近目标时快速下降，对应 reactive 策略；Jenga 的 std 始终接近 0，对应 predictive 的开环策略。
 - **鲁棒性**（Fig.6）：推动主板、强行打开夹爪、扰动皮带时，策略会重新抓取或重试。这部分只有定性展示，没有数字。
 
 ## 局限与论文没说的
@@ -105,7 +105,7 @@ $$\mathcal L(\theta)=\mathbb E\Big[\big(r+\gamma\,Q_{\theta'}(s',\arg\max_{a'}Q_
 ## 自测问题
 
 1. 为什么干预数据要同时写入两个 buffer，而策略转移只写入 RL buffer？在 50/50 采样下，这会怎样改变有效的数据分布？如果干预数据也只写入 RL buffer，你预期会发生什么？
-2. 同样的纠错数据，HG-DAgger 拿去做监督回归，HIL-SERL 拿去做 RL。为什么后者能突破人类水平的 cycle time？$\gamma<1$ 在其中起什么作用？
+2. 同样的纠错数据，HG-DAgger 拿去做监督回归，HIL-SERL 拿去做 RL。为什么后者能突破人类水平的 cycle time？ $\gamma<1$ 在其中起什么作用？
 3. 为什么"反复长时间接管直到成功"会导致 value 高估？结合 Eq.1 的 bootstrapped target 和策略自身实际能到达的状态来解释。
 4. 推导 ego-centric 表征：用 $T_{b_0b_t}$ 和 adjoint 映射说明，为什么主板在执行中平移后 RAM 策略依然有效？在什么情况下这种不变性会失效？
 5. 看 Table 1b：去掉干预后，HIL-SERL 在 RAM 上不如 IBRL。这对"HIL-SERL 的 RL 部分优于其他 demo-RL 方法"这一说法意味着什么？要把它说清楚，还缺哪个实验？

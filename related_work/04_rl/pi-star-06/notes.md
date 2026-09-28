@@ -21,23 +21,23 @@ RECAP（RL with Experience and Corrections via Advantage-conditioned Policies）
 
 ## 核心方法
 
-**0. 理论出发点**（Sec III，l.212-215）。正则化 RL 的目标是 $\max_\pi \mathbb E[\sum r]-\beta\,\mathbb E[D(\pi\|\pi_{\text{ref}})]$。当 $D$ 取 KL 时，解是熟知的 $\hat\pi\propto\pi_{\text{ref}}\exp(A^{\pi_{\text{ref}}}/\beta)$，这也是 AWR/REPS 的来源。RECAP 用的是一个不那么常见的形式。先定义"改进事件" $I$ 的概率 $p(I\mid A)=g(A)/\int g(A(\mathbf o,\mathbf a'))d\mathbf a'$，其中 $g$ 单调递增。那么
+**0. 理论出发点**（Sec III，l.212-215）。正则化 RL 的目标是 $\max_\pi \mathbb E[\sum r]-\beta\thinspace\mathbb E[D(\pi\Vert\pi_{\text{ref}})]$。当 $D$ 取 KL 时，解是熟知的 $\hat\pi\propto\pi_{\text{ref}}\exp(A^{\pi_{\text{ref}}}/\beta)$，这也是 AWR/REPS 的来源。RECAP 用的是一个不那么常见的形式。先定义"改进事件" $I$ 的概率 $p(I\mid A)=g(A)/\int g(A(\mathbf o,\mathbf a'))d\mathbf a'$，其中 $g$ 单调递增。那么
 
-$$\hat\pi(\mathbf a\mid\mathbf o)\propto\pi_{\text{ref}}(\mathbf a\mid\mathbf o)\,p\big(I\mid A^{\pi_{\text{ref}}}(\mathbf o,\mathbf a)\big)^\beta$$
+$$\hat\pi(\mathbf a\mid\mathbf o)\propto\pi_{\text{ref}}(\mathbf a\mid\mathbf o)\thinspace p\big(I\mid A^{\pi_{\text{ref}}}(\mathbf o,\mathbf a)\big)^\beta$$
 
 保证 $\mathcal J(\hat\pi)\ge\mathcal J(\pi_{\text{ref}})$（论文引 MARWIL、CFGRL 作为依据）。
 
 **1. Distributional value function**（Sec IV-A Eq.1，l.233-241；Sec V-C Eq.5，l.377-385）。奖励定义为
 
-$$r_t=\begin{cases}0 & t=T\ \text{且成功}\\ -C_{\text{fail}} & t=T\ \text{且失败}\\ -1 & \text{otherwise}\end{cases}$$
+$$r_t=\begin{cases}0 & t=T\ \text{且成功}\cr -C_{\text{fail}} & t=T\ \text{且失败}\cr -1 & \text{otherwise}\end{cases}$$
 
 所以成功 episode 的 value 等于"负的剩余步数"，失败 episode 的 value 是一个很大的负数。value 按每个任务的最大 episode 长度归一化到 $(-1,0)$。论文没给 $C_{\text{fail}}$ 的具体值。
 
 value function $p_\phi(V\mid\mathbf o_t,\ell)\in\Delta_B$ 输出 $B=201$ 个 bin 上的分布。训练时把经验回报离散化成 $R^B_t(\tau)$，再做交叉熵：
 
-$$\min_\phi\ \mathbb E_{\tau\in\mathcal D}\Big[\sum_{\mathbf o_t\in\tau}H\big(R^B_t(\tau),\,p_\phi(V\mid\mathbf o_t,\ell)\big)\Big],\qquad V^{\pi_{\text{ref}}}(\mathbf o_t,\ell)=\sum_b p_\phi(V{=}b\mid\mathbf o_t)\,v(b)$$
+$$\min_\phi\ \mathbb E_{\tau\in\mathcal D}\Big[\sum_{\mathbf o_t\in\tau}H\big(R^B_t(\tau),\thinspace p_\phi(V\mid\mathbf o_t,\ell)\big)\Big],\qquad V^{\pi_{\text{ref}}}(\mathbf o_t,\ell)=\sum_b p_\phi(V{=}b\mid\mathbf o_t)\thinspace v(b)$$
 
-这里的关键是：这是 **Monte Carlo 估计**，估的是数据集所代表的行为策略 $\pi_{\text{ref}}$ 的 value。$\pi_{\text{ref}}$ 是示范、历代策略和人类纠正混在一起的策略。这里不做 TD bootstrap，也不学 Q。作者承认它不如 off-policy Q 估计，但简单、可靠（l.251）。value function 的架构与 VLA 相同，只是 backbone 更小：670M 的 VLM（Fig.3 标注为 SigLIP 400M + Gemma 270M），从 Gemma 3 初始化，并混入少量 web 多模态数据来防止过拟合（l.387）。
+这里的关键是：这是 **Monte Carlo 估计**，估的是数据集所代表的行为策略 $\pi_{\text{ref}}$ 的 value。 $\pi_{\text{ref}}$ 是示范、历代策略和人类纠正混在一起的策略。这里不做 TD bootstrap，也不学 Q。作者承认它不如 off-policy Q 估计，但简单、可靠（l.251）。value function 的架构与 VLA 相同，只是 backbone 更小：670M 的 VLM（Fig.3 标注为 SigLIP 400M + Gemma 270M），从 Gemma 3 初始化，并混入少量 web 多模态数据来防止过拟合（l.387）。
 
 **2. Advantage 估计**（App F，l.752）。post-training 阶段用 $N=50$ 的 n-step 估计：
 
@@ -45,13 +45,13 @@ $$A(\mathbf o_t,\mathbf a_t)=\sum_{t'=t}^{t+N-1}r_{t'}+V(\mathbf o_{t+N})-V(\mat
 
 预训练阶段改用 $N=T$，即整条回报减 $V(\mathbf o_t)$。这样每个样本只需调用一次 value function，可以在 VLA 训练中 on-the-fly 计算。代价是方差更大，作者称在大规模多任务数据上已经够用。
 
-**3. Advantage-conditioned policy extraction**（Sec IV-B Eq.2-3，l.275-295）。由 Bayes 公式，$p(I\mid A)=\pi_{\text{ref}}(\mathbf a\mid I,\mathbf o)/\pi_{\text{ref}}(\mathbf a\mid\mathbf o)$。代入上式得到
+**3. Advantage-conditioned policy extraction**（Sec IV-B Eq.2-3，l.275-295）。由 Bayes 公式， $p(I\mid A)=\pi_{\text{ref}}(\mathbf a\mid I,\mathbf o)/\pi_{\text{ref}}(\mathbf a\mid\mathbf o)$。代入上式得到
 
 $$\hat\pi(\mathbf a\mid\mathbf o,\ell)\propto\pi_{\text{ref}}(\mathbf a\mid\mathbf o,\ell)\left(\frac{\pi_{\text{ref}}(\mathbf a\mid I,\mathbf o,\ell)}{\pi_{\text{ref}}(\mathbf a\mid\mathbf o,\ell)}\right)^{\beta}\quad\text{(Eq.2)}$$
 
-当 $\beta=1$ 时，$\hat\pi=\pi_{\text{ref}}(\mathbf a\mid I,\mathbf o,\ell)$。也就是说，**改进策略就是"以 I=True 为条件的行为策略"**。因此不需要显式学习 $p(I\mid A)$，只要一个模型能同时表示条件分布和无条件分布，这与 classifier-free guidance 的思路相同，即 CFGRL。
+当 $\beta=1$ 时， $\hat\pi=\pi_{\text{ref}}(\mathbf a\mid I,\mathbf o,\ell)$。也就是说，**改进策略就是"以 I=True 为条件的行为策略"**。因此不需要显式学习 $p(I\mid A)$，只要一个模型能同时表示条件分布和无条件分布，这与 classifier-free guidance 的思路相同，即 CFGRL。
 
-$I$ 用阈值指示函数定义：$I_t=\mathbb 1\big(A^{\pi_{\text{ref}}}(\mathbf o_t,\mathbf a_t,\ell)>\epsilon_\ell\big)$。训练目标为
+$I$ 用阈值指示函数定义： $I_t=\mathbb 1\big(A^{\pi_{\text{ref}}}(\mathbf o_t,\mathbf a_t,\ell)>\epsilon_\ell\big)$。训练目标为
 
 $$\min_\theta\ \mathbb E_{\mathcal D_{\pi_{\text{ref}}}}\big[-\log\pi_\theta(\mathbf a_t\mid\mathbf o_t,\ell)-\alpha\log\pi_\theta(\mathbf a_t\mid I_t,\mathbf o_t,\ell)\big]\quad\text{(Eq.3)}$$
 
@@ -64,11 +64,11 @@ $$\min_\theta\ \mathbb E_{\mathcal D_{\pi_{\text{ref}}}}\big[-\log\pi_\theta(\ma
 
 π*0.6 只多做一件事：在序列中 $\hat\ell$ 之后、动作之前插入文本 "Advantage: positive / negative"，所以它只影响动作部分的似然。连续动作部分用 flow-matching loss 近似似然下界：
 
-$$\log\pi_\theta(\mathbf a_{t:t+H},a^\ell_{t:t+H}\mid I_t,\mathbf o_t,\ell,\hat\ell)\ \ge\ \mathbb E_{\eta,\omega}\Big[\log p_\theta(a^\ell_{t:t+H}\mid I_t,\cdot)-\alpha_\eta\big\|\omega-\mathbf a_{t:t+H}-f_\theta(\mathbf a^{\eta,\omega}_{t:t+H},I_t,\cdot)\big\|^2\Big]$$
+$$\log\pi_\theta(\mathbf a_{t:t+H},a^\ell_{t:t+H}\mid I_t,\mathbf o_t,\ell,\hat\ell)\ \ge\ \mathbb E_{\eta,\omega}\Big[\log p_\theta(a^\ell_{t:t+H}\mid I_t,\cdot)-\alpha_\eta\big\Vert\omega-\mathbf a_{t:t+H}-f_\theta(\mathbf a^{\eta,\omega}_ {t:t+H},I_t,\cdot)\big\Vert^2\Big]$$
 
-其中 $\mathbf a^{\eta,\omega}=\eta\mathbf a+(1-\eta)\omega$，$\omega\sim\mathcal N(0,\mathbf I)$（Eq.4）。App C 按 Kingma 的 diffusion ELBO 推导，取权重 $w(\eta)=e^{-\eta/2}$。实际训练中不调 $\alpha$，而是以 30% 的概率丢掉 indicator（App F，l.755）。这样同一个模型既是条件模型，也是无条件模型。
+其中 $\mathbf a^{\eta,\omega}=\eta\mathbf a+(1-\eta)\omega$， $\omega\sim\mathcal N(0,\mathbf I)$（Eq.4）。App C 按 Kingma 的 diffusion ELBO 推导，取权重 $w(\eta)=e^{-\eta/2}$。实际训练中不调 $\alpha$，而是以 30% 的概率丢掉 indicator（App F，l.755）。这样同一个模型既是条件模型，也是无条件模型。
 
-**5. 阈值设定与推理**（App E/F）。$\epsilon_\ell$ 按比例来设：
+**5. 阈值设定与推理**（App E/F）。 $\epsilon_\ell$ 按比例来设：
 - 预训练时，让约 30% 的示范数据为 positive（在 10k 个随机样本上估计）。
 - 微调时，让每轮约 40% 的 rollout 为 positive。
 - T-shirt/shorts 任务上，用高质量示范训练出的策略"慢但成功率高"，所以把 positive 比例压到约 10%。
@@ -83,9 +83,9 @@ $$\nabla_{\mathbf a}\log\pi_\theta(\mathbf a\mid\mathbf o,\ell)+\beta\big(\nabla
 
 **6. 整体流程**（Algorithm 1，l.309-327）。
 - **预训练**：在数万小时的多机器人示范上训练 $V_{\text{pre}}$（Eq.1），再用它 on-the-fly 算 $I_t$ 来训练 $\pi_{\text{pre}}$（Eq.3），得到"RL pre-trained π*0.6"。
-- **任务 $\ell$ 的初始化**：用该任务的示范微调，$I_t$ 固定为 True，相当于 SFT，得到 $\pi^0_\ell$（Algorithm 1 里同时也从 $V_{\text{pre}}$ 微调出 $V^0_\ell$）。
+- **任务 $\ell$ 的初始化**：用该任务的示范微调， $I_t$ 固定为 True，相当于 SFT，得到 $\pi^0_\ell$（Algorithm 1 里同时也从 $V_{\text{pre}}$ 微调出 $V^0_\ell$）。
 - **迭代 $k=1..K$**：
-  1. 用 $\pi^{k-1}_\ell$ 采集数据，一部分全自主，一部分有专家接管，全部并入 $\mathcal D_\ell$。
+  1. 用 $\pi^{k-1}_ \ell$ 采集数据，一部分全自主，一部分有专家接管，全部并入 $\mathcal D_\ell$。
   2. **从预训练 checkpoint** 重新微调 $V^k_\ell$ 和 $\pi^k_\ell$，而不是在上一轮基础上继续训；作者称这样可以避免多轮漂移（l.404）。
 
 这是批式的 iterated offline RL，不是实时在线更新。
@@ -162,7 +162,7 @@ AWR 和 PPO 都没有明显超过 offline RL+SFT。这是全文最接近消融�
 
 **我读出来的**：
 - **消融严重不足**：
-  - 下面这些设计都没有单独消融：distributional value（对比标量回归）、$N=50$、阈值 $\epsilon_\ell$ 的正样本比例、indicator dropout、CFG 的 $\beta$、纠正片段强制 $I=\text{True}$、每轮从预训练 checkpoint 重训。
+  - 下面这些设计都没有单独消融：distributional value（对比标量回归）、 $N=50$、阈值 $\epsilon_\ell$ 的正样本比例、indicator dropout、CFG 的 $\beta$、纠正片段强制 $I=\text{True}$、每轮从预训练 checkpoint 重训。
   - 缺一个关键 baseline：同样数据上只用成功 episode 做 filtered BC。有了它才能区分提升究竟来自"多了数据"还是来自"advantage 条件化"。
   - 与 AWR/PPO 的对比只在一个任务上做过。
 - **理论和实践之间有距离**：
@@ -178,7 +178,7 @@ AWR 和 PPO 都没有明显超过 offline RL+SFT。这是全文最接近消融�
   - 迭代实验只在一种静态双臂上做过。
   - specialist 微调后是否遗忘了其他任务，没有报告。
   - value function 在 OOD 状态下是否可靠，没有测。
-- **算力与门槛**：GPU/TPU 型号、训练时长、训练步数都没报。预训练数据是数万小时的私有示范。每个任务要几百到上千条真实 episode 加人工标注。chunk 长度 $H$、$C_{\text{fail}}$、以及一个"step"对应多长时间，也都没给。
+- **算力与门槛**：GPU/TPU 型号、训练时长、训练步数都没报。预训练数据是数万小时的私有示范。每个任务要几百到上千条真实 episode 加人工标注。chunk 长度 $H$、 $C_{\text{fail}}$、以及一个"step"对应多长时间，也都没给。
 - **可能的失败模式**：
   - 阈值按比例设定，意味着总有固定比例的数据被标成 positive。如果整批数据都差，模型仍会把"没那么差"的动作当作目标。
   - 人类纠正的质量参差不齐（作者自己也承认），强制标 positive 可能把次优动作也学进去。
@@ -222,7 +222,7 @@ AWR 和 PPO 都没有明显超过 offline RL+SFT。这是全文最接近消融�
   2. 滚出几百条 episode，按 Eq.5 的稀疏奖励打标签，训练一个 201-bin 的 distributional value function（小 ViT 即可）。
   3. 用 n-step advantage 加比例阈值（先试 30% 和 40%）得到 $I_t$，以 30% 的 indicator dropout 做条件训练。
   4. 设置对照组：在全部数据上 SFT、只用成功 episode 的 filtered BC、AWR、同样数据上的 DPPO 式 PPO。报告成功率和平均完成时长（后者对应 throughput）。
-  5. 扫描阈值比例和 CFG 的 $\beta\in\{1,1.5,2.5\}$，迭代 2-3 轮，观察是持续改进还是出现漂移。
+  5. 扫描阈值比例和 CFG 的 $\beta\in\lbrace1,1.5,2.5\rbrace$，迭代 2-3 轮，观察是持续改进还是出现漂移。
 - **预计难点**：
   - MC value 在数据少时噪声大，阈值附近的标签会来回抖动。
   - 仿真很难复现"人类纠正"和"throughput 提升"这类真实世界现象。
@@ -230,8 +230,8 @@ AWR 和 PPO 都没有明显超过 offline RL+SFT。这是全文最接近消融�
 
 ## 自测问题
 
-1. 为什么在 $\beta=1$ 时，"以 $I=\text{True}$ 为条件的行为策略"恰好就是正则化改进策略 $\hat\pi$？请从 $\hat\pi\propto\pi_{\text{ref}}\,p(I\mid A)^\beta$ 出发，用 Bayes 公式推出 Eq.2。
+1. 为什么在 $\beta=1$ 时，"以 $I=\text{True}$ 为条件的行为策略"恰好就是正则化改进策略 $\hat\pi$？请从 $\hat\pi\propto\pi_{\text{ref}}\thinspace p(I\mid A)^\beta$ 出发，用 Bayes 公式推出 Eq.2。
 2. RECAP 的 value function 估的是哪个策略的 value？论文为什么用 MC 回归而不用 Q-learning？这对"多轮迭代能否超越行为策略"意味着什么？
 3. 和 AWR 相比，advantage conditioning 在数据利用上有什么不同？负 advantage 的样本在 Eq.3 中起什么作用？
 4. 阈值 $\epsilon_\ell$ 和 CFG 的 $\beta$ 都能锐化策略，作者为什么主要用 $\epsilon_\ell$？大 $\beta$ 有什么风险？为什么 CFG 对自回归部分不起作用？
-5. 奖励只有 $r_t\in\{-1,0,-C_{\text{fail}}\}$ 三种取值。这样一个由稀疏成功标签导出的奖励，为什么能同时推高成功率和速度？在 T-shirt 任务里，为什么要把 positive 比例压到约 10%？
+5. 奖励只有 $r_t\in\lbrace-1,0,-C_{\text{fail}}\rbrace$ 三种取值。这样一个由稀疏成功标签导出的奖励，为什么能同时推高成功率和速度？在 T-shirt 任务里，为什么要把 positive 比例压到约 10%？

@@ -14,7 +14,7 @@
   - 状态 $\mathcal S=\mathcal I\times\mathcal G$（图像序列 × 语言指令）。论文**假设仅凭图像就能定义机器人状态**，并明确把 POMDP 留作未来工作。
   - 动作是长度为 $K$ 的 action chunk $a_t\in\mathbb R^{K\times D}$，每一维离散化为 256 个 bin。
   - 转移 $P$ 由 world model $p_\phi$ 学出。
-  - 奖励是学出来的 trajectory 级二值信号 $R_\psi(\tau)\in\{0,1\}$。
+  - 奖励是学出来的 trajectory 级二值信号 $R_\psi(\tau)\in\lbrace0,1\rbrace$。
   - 目标是 $\max_\theta \mathbb E_{\tau\sim\pi_\theta,p_\phi}[R_\psi(\tau)]$（Eq.1）。
 - **数据假设**：有 $P$ 条真实轨迹（rollout budget），由 base policy 采集，用来微调 WM 和训练 reward model。想象的起点 $s_0$（前 $c$ 帧加指令）从真实环境中采样。
 - **以往方法卡在哪**（§1、§2）：
@@ -27,13 +27,13 @@
 
 方法由三个学出来的组件构成：world model $p_\phi$、reward model $R_\psi$、policy $\pi_\theta$（整体流程见 Fig.2）。
 
-**1. 想象 rollout（Eq.2）。** 记号约定：$i$ 为帧下标，$t$ 为状态（chunk）下标。
-- 策略读取最近 $m$ 帧和指令，输出一个 chunk：$a_{i:i+K}\sim\pi_\theta(I_{i-m:i},g)$。
+**1. 想象 rollout（Eq.2）。** 记号约定： $i$ 为帧下标， $t$ 为状态（chunk）下标。
+- 策略读取最近 $m$ 帧和指令，输出一个 chunk： $a_{i:i+K}\sim\pi_\theta(I_{i-m:i},g)$。
 - WM 以最近 $c$ 帧和这个 chunk 为条件，生成接下来的 $K$ 帧：
 
-$$I_{i:i+K}\sim p_\phi(I_{i-c:i},\,a_{i:i+K})\qquad(\texttt{03method.tex}\ \text{Eq.2})$$
+$$I_{i:i+K}\sim p_\phi(I_{i-c:i},\thinspace a_{i:i+K})\qquad(\texttt{03method.tex}\ \text{Eq.2})$$
 
-- 按 clip 自回归，直到最大长度 $N$，得到 $\tau=\{I_{0:N},a_{0:N}\}$，由 $R_\psi$ 打 0/1 标签。实验中 $K=8$、$c=4$（§4.1）。
+- 按 clip 自回归，直到最大长度 $N$，得到 $\tau=\lbrace I_{0:N},a_{0:N}\rbrace$，由 $R_\psi$ 打 0/1 标签。实验中 $K=8$、 $c=4$（§4.1）。
 - 生成的是**完整 trial**，而不是短时域预测。原因是短时域下奖励难以定义，还容易出现 reward hacking（§1）。
 
 **2. World model 结构（§3.2）。**
@@ -48,7 +48,7 @@ $$\mathbf x^i=\mathbf x^i+(1+\alpha_1^i)\cdot\mathrm{Block}\big(\gamma_1^i\cdot\
 
 **3. Reward model（§3.3）。**
 - 结构是 VideoMAE encoder 加线性头，用 BCE 训练。
-- 取长度为 $L$ 的 clip $c_i=I_{i-L:i}$。正样本是成功轨迹的末尾 clip $c_N$。负样本有两类：成功轨迹中 $\{c_i:L\le i\le N-L\}$ 范围内的 clip，以及失败轨迹中的任意 clip。每个 batch 内正负样本数量平衡。
+- 取长度为 $L$ 的 clip $c_i=I_{i-L:i}$。正样本是成功轨迹的末尾 clip $c_N$。负样本有两类：成功轨迹中 $\lbrace c_i:L\le i\le N-L\rbrace$ 范围内的 clip，以及失败轨迹中的任意 clip。每个 batch 内正负样本数量平衡。
 - 推理时用 stride $s$ 的滑窗，只要**任一 clip** 的概率超过阈值 $\tau_{thr}$（在验证集上选定）就判为成功。实验取 $L=8$、stride 1。
 
 **4. On-policy GRPO（§3.4，Alg.1）。**
@@ -59,12 +59,12 @@ $$\log\pi_{\theta_{old}}(a_t\mid s_t)=\sum_{i=1}^{K}\sum_{j=1}^{D}\log\pi_{\thet
 
 - 目标函数（Eq.4–5）去掉了 KL 项和 reference model，并使用非对称 clip（即 DAPO 的 Clip-Higher）：
 
-$$\mathcal J(\theta)=\mathbb E_{s_0\sim\mathcal D,\{\tau_i\}\sim\pi_{\theta_{old}}}\Big[\frac1G\sum_{i=1}^G\frac1T\sum_{t=0}^{T}\min\big(r_{i,t}(\theta)\hat A_i,\ \mathrm{clip}(r_{i,t}(\theta),1-\epsilon_{low},1+\epsilon_{high})\hat A_i\big)\Big]$$
+$$\mathcal J(\theta)=\mathbb E_{s_0\sim\mathcal D,\lbrace\tau_i\rbrace\sim\pi_{\theta_{old}}}\Big[\frac1G\sum_{i=1}^G\frac1T\sum_{t=0}^{T}\min\big(r_{i,t}(\theta)\hat A_i,\ \mathrm{clip}(r_{i,t}(\theta),1-\epsilon_{low},1+\epsilon_{high})\hat A_i\big)\Big]$$
 
-$$r_{i,t}(\theta)=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid s_{i,t})},\qquad \hat A_i=\frac{R_i-\mathrm{mean}(\{R_i\}_{i=1}^G)}{\mathrm{std}(\{R_i\}_{i=1}^G)}$$
+$$r_{i,t}(\theta)=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid s_{i,t})},\qquad \hat A_i=\frac{R_i-\mathrm{mean}(\lbrace R_i\rbrace_{i=1}^G)}{\mathrm{std}(\lbrace R_i\rbrace_{i=1}^G)}$$
 
 - advantage 是 trajectory 级的：同一条轨迹的所有 chunk 共享同一个 $\hat A_i$，既没有 critic 也没有 value function。这之所以可行，是因为 WM 可以从同一个 $s_0$ 反复 reset。
-- 超参见 Table 4（`06appendix.tex` 的 `tab:grpo`）：lr $5\times10^{-6}$，training batch 64，$G=8$，mini-batch 128，$\epsilon_{low}=0.20$，$\epsilon_{high}=0.28$，采样温度 1.6；其余设置沿用 SimpleVLA-RL。
+- 超参见 Table 4（`06appendix.tex` 的 `tab:grpo`）：lr $5\times10^{-6}$，training batch 64， $G=8$，mini-batch 128， $\epsilon_{low}=0.20$， $\epsilon_{high}=0.28$，采样温度 1.6；其余设置沿用 SimpleVLA-RL。
 - 表里 batch 64 小于 mini-batch 128，看上去矛盾。Alg.1 又把 batch size $B$ 标为"trajectories"，并要求 $M\mid B$，与表中数值对不上，论文内部不自洽。附录 B 写到 GRPO 基线"一次更新至少需要 64×8=512 条真实轨迹"，据此推断 64 是组数、128 是轨迹数。这只是推断，论文没有写明。
 
 **训练与推理流程。**
@@ -81,7 +81,7 @@ $$r_{i,t}(\theta)=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i
 
 **主结果（Table 1）**：
 - base 平均成功率 33.6%。
-- $P=128$ 时，GRPO / DPO / WMPO 平均为 33.2 / 37.3 / **47.1**；$P=1280$ 时为 37.1 / 42.4 / **57.6**。WMPO 对最强基线的领先幅度从 +9.8 扩大到 +15.2。
+- $P=128$ 时，GRPO / DPO / WMPO 平均为 33.2 / 37.3 / **47.1**； $P=1280$ 时为 37.1 / 42.4 / **57.6**。WMPO 对最强基线的领先幅度从 +9.8 扩大到 +15.2。
 - Coffee 从 43.8 升到 61.7（P=128），再到 75.0（P=1280）；Square 从 24.2 升到 45.3（P=1280）。
 - GRPO 表现差的原因见附录 B：batch 取 64 时一次更新就要至少 512 条真实轨迹，即使 P=1280 也只够更新一两次。
 
@@ -167,7 +167,7 @@ $$r_{i,t}(\theta)=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i
 - **算力**（附录 A）：OpenVLA-OFT 的 SFT 用 8×H100；WM 训练和策略优化用 32×H100；**训练时长没有报告**。最重的是 WM 的 OXE 预训练（Table 3：batch 128，lr 1e-4，EMA 0.9999），个人基本无法重做。
 - **数据 / 环境**：OXE（预训练）；Mimicgen（robosuite）四个 D0 任务，每个任务 300 条专家轨迹。真机部分需要 Cobot Mobile ALOHA，无法复现。
 - **最小可复现实验**：
-  1. 下载官方的 SFT base policy、微调后的 WM 和 RM checkpoint，只跑 Coffee_D0、$P=128$ 的 WMPO 脚本，在 128 个初始状态上评测，对照 Table 1（43.8 → 61.7）。
+  1. 下载官方的 SFT base policy、微调后的 WM 和 RM checkpoint，只跑 Coffee_D0、 $P=128$ 的 WMPO 脚本，在 128 个初始状态上评测，对照 Table 1（43.8 → 61.7）。
   2. 补一个论文没做的诊断：对若干真实初始状态，把真实执行的动作序列放进 WM 回放，再用 RM 判定，与仿真真值对比得到混淆矩阵。训练过程中定期记录"WM 内成功率 vs Mimicgen 真实成功率"，直接量化 model exploitation。
   3. 如果还有余力，做 policy behavior alignment 的消融：WM 只用那 300 条专家轨迹微调，其余设置不变。
 - **预计难点**：

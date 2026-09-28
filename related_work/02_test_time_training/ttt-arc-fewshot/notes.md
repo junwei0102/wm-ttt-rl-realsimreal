@@ -20,7 +20,7 @@
 
 ## 核心方法
 
-**0. 通用 TTT 形式**（`source/TTT_arxiv.tex` Sec 2.2，未编号公式）。从 $\boldsymbol\theta_0$ 出发，对每个测试输入（或一批输入）$d$ 生成临时训练集 $\mathcal D_{\rm TTT}$，再做
+**0. 通用 TTT 形式**（`source/TTT_arxiv.tex` Sec 2.2，未编号公式）。从 $\boldsymbol\theta_0$ 出发，对每个测试输入（或一批输入） $d$ 生成临时训练集 $\mathcal D_{\rm TTT}$，再做
 
 $$\arg\min_{\boldsymbol\theta}\sum_{d_{\rm TTT}\in\mathcal D_{\rm TTT}}\mathcal L\big(\mathrm{LM}(d_{\rm TTT};\boldsymbol\theta)\big)$$
 
@@ -28,32 +28,32 @@ $$\arg\min_{\boldsymbol\theta}\sum_{d_{\rm TTT}\in\mathcal D_{\rm TTT}}\mathcal 
 
 **1. 构造 $\mathcal D_{\rm TTT}$**（Sec 3.1，未编号公式）
 
-- Leave-one-out：$d_j^{\rm ICL}=\big(\{(x_k,y_k)\}_{k\ne j},\,x_j,\,y_j\big)$，并额外打乱 demo 顺序。K 个 demo 生成 K 个"(K−1)-shot + query"的任务。推理时模型看到的是"K 个 demo + $x_{\rm test}$"，两者格式一致。
-- 对照组 Direct I/O：$d_j^{\rm I/O}=(x_j,y_j)$，不带 context。
+- Leave-one-out： $d_j^{\rm ICL}=\big(\lbrace(x_k,y_k)\rbrace_{k\ne j},\thinspace x_j,\thinspace y_j\big)$，并额外打乱 demo 顺序。K 个 demo 生成 K 个"(K−1)-shot + query"的任务。推理时模型看到的是"K 个 demo + $x_{\rm test}$"，两者格式一致。
+- 对照组 Direct I/O： $d_j^{\rm I/O}=(x_j,y_j)$，不带 context。
 - 增广：取一组可逆变换 $\mathcal T$，满足 $t^{-1}(t(x))=x$，作用到任务中所有输入和输出网格上，得到 $\mathcal D_{\rm TTT}=\bigcup_{t\in\mathcal T}\bigcup_j t(d_j)$。具体变换见 App C.1 Table 5：Rotate 90/180/270、Flip、Reflect、RandomTranslateXY（最大平移 4）、Transpose、IncreaseResolution/Height/Width(2)，以及它们的 Chain 组合。之后再做颜色置换和示例打乱。每个任务最多保留 250 条（Sec 4.2）。
 
 **2. 损失**（Sec 3.2，未编号公式）
 
-$$\mathcal L^{\rm label}_{\rm LM}=\mathcal L_{\rm LM}(y_{\rm test}\mid x_1,y_1,\dots,x_K,y_K,x_{\rm test};\boldsymbol\theta)$$
+$$\mathcal L^{\rm label}_ {\rm LM}=\mathcal L_{\rm LM}(y_{\rm test}\mid x_1,y_1,\dots,x_K,y_K,x_{\rm test};\boldsymbol\theta)$$
 
-$$\mathcal L^{\rm outputs}_{\rm LM}=\mathcal L^{\rm label}_{\rm LM}+\sum_{k=1}^{K}\mathcal L_{\rm LM}(y_k\mid x_1,y_1,\dots,x_k;\boldsymbol\theta)$$
+$$\mathcal L^{\rm outputs}_ {\rm LM}=\mathcal L^{\rm label}_ {\rm LM}+\sum_{k=1}^{K}\mathcal L_{\rm LM}(y_k\mid x_1,y_1,\dots,x_k;\boldsymbol\theta)$$
 
-$$\mathcal L^{\rm all}_{\rm LM}=\mathcal L^{\rm outputs}_{\rm LM}+\sum_{k=1}^{K}\mathcal L_{\rm LM}(x_k\mid x_1,y_1,\dots,y_{k-1};\boldsymbol\theta)$$
+$$\mathcal L^{\rm all}_ {\rm LM}=\mathcal L^{\rm outputs}_ {\rm LM}+\sum_{k=1}^{K}\mathcal L_{\rm LM}(x_k\mid x_1,y_1,\dots,y_{k-1};\boldsymbol\theta)$$
 
-在 LOO 样本里，这里的 "test" 指被留出的 $(x_j,y_j)$。默认用 $\mathcal L^{\rm outputs}$：同一条序列里，每个前缀都是一个 (k−1)-shot 任务，都能提供监督。ARC 上求和从 $k=2$ 开始，因为只看 0 个 demo 推不出规则（脚注 3）。$\mathcal L^{\rm all}$ 连输入也一起建模，相当于 Sun et al. 那种无监督 TTT 目标。注：Sec 3.2 末尾把"loss over demo and test outputs"称为 "the first method"，其实它对应列表里的第二项；Fig 5/8 的实验也表明默认用的是 $\mathcal L^{\rm outputs}$。
+在 LOO 样本里，这里的 "test" 指被留出的 $(x_j,y_j)$。默认用 $\mathcal L^{\rm outputs}$：同一条序列里，每个前缀都是一个 (k−1)-shot 任务，都能提供监督。ARC 上求和从 $k=2$ 开始，因为只看 0 个 demo 推不出规则（脚注 3）。 $\mathcal L^{\rm all}$ 连输入也一起建模，相当于 Sun et al. 那种无监督 TTT 目标。注：Sec 3.2 末尾把"loss over demo and test outputs"称为 "the first method"，其实它对应列表里的第二项；Fig 5/8 的实验也表明默认用的是 $\mathcal L^{\rm outputs}$。
 
 **3. 参数化**（Sec 3.3, App C.2）
 
 - 默认每个任务一个 LoRA（base 权重不动）。ARC 上（App C.2）LoRA 作用于 self-attention 的 q/v 投影、MLP，以及输出投影（最后这项只有 Llama-3 8B 在 torchtune 里支持）。
-- ARC 超参（Table 6）：$r=128,\ \alpha=16$；lr 5e-5（1B/3B）或 1e-4（8B）；2 epochs，batch 2，AdamW。
-- BBH 超参（Table 8 加粗项）：$r=64,\ \alpha=64$，lr 1e-4，40 steps，batch 5，cosine schedule；由 demo 的 40 种随机打乱生成 LOO 任务（Sec 5.2）。
+- ARC 超参（Table 6）： $r=128,\ \alpha=16$；lr 5e-5（1B/3B）或 1e-4（8B）；2 epochs，batch 2，AdamW。
+- BBH 超参（Table 8 加粗项）： $r=64,\ \alpha=64$，lr 1e-4，40 steps，batch 5，cosine schedule；由 demo 的 40 种随机打乱生成 LOO 任务（Sec 5.2）。
 - 对照组 Shared：所有任务共用一个 LoRA，相当于测试时版本的 MetaICL。
 
 **4. TTT 之前的微调（只做 ARC；Sec 4.2, App B）**
 
 - 在合成的 ARC 类任务上对 Llama-3 系列做全参数 FT，数据格式和目标与 TTT 完全相同。
 - 数据来源：
-  - ReARC 生成器，$d=(x,y)\sim{\rm eval}(g_i)$（App B Eq.1）；
+  - ReARC 生成器， $d=(x,y)\sim{\rm eval}(g_i)$（App B Eq.1）；
   - 用 GPT-4/4o few-shot 生成的 6426 个新生成器（Eq.2–5, App D）；
   - 以 30% 的概率施加几何变换，分为只变输入、只变输出、两者都变三种。
 - 超参（Table 4）：lr 2.5e-5，2 epochs，batch 32，AdamW，cosine 加 2k warmup；步数上限 16000 写在 App B.2 正文。
@@ -160,7 +160,7 @@ $$\tilde y\sim\mathrm{LM}\big([t(x_1),t(y_1),\dots,t(x_{\rm test})]\big),\qquad 
 3. 经典 TTT/TTA（[Sun et al.](../ttt-self-supervised/notes.md)、[Tent](../tent/notes.md)）：测试时用什么 loss、更新哪些参数。
 4. Self-consistency / majority voting；pass@k。
 5. ARC 的任务格式与评测规则；transductive 与 inductive（程序合成）两类解法的区别。
-6. 数据增广中的等变性：$t^{-1}\circ f\circ t=f$ 的前提是规则对 $t$ 等变。
+6. 数据增广中的等变性： $t^{-1}\circ f\circ t=f$ 的前提是规则对 $t$ 等变。
 
 ## 复现可行性
 
@@ -182,7 +182,7 @@ $$\tilde y\sim\mathrm{LM}\big([t(x_1),t(y_1),\dots,t(x_{\rm test})]\big),\qquad 
 ## 自测问题
 
 1. Direct I/O 和 leave-one-out 的训练样本分别长什么样？为什么在 ARC（18 对 29）和 BBH（51.5 对 57.8）上 Direct I/O 都更差？从"训练和推理时的条件化格式是否一致"来解释。
-2. 写出 $\mathcal L^{\rm outputs}$。一条 LOO 序列提供了多少个监督信号？为什么 ARC 上求和从 $k=2$ 开始？$\mathcal L^{\rm all}$ 多出来的那一项对应经典 TTT 里的哪类目标，为什么在 BBH 上没帮上忙（55.9 对 57.8）？
+2. 写出 $\mathcal L^{\rm outputs}$。一条 LOO 序列提供了多少个监督信号？为什么 ARC 上求和从 $k=2$ 开始？ $\mathcal L^{\rm all}$ 多出来的那一项对应经典 TTT 里的哪类目标，为什么在 BBH 上没帮上忙（55.9 对 57.8）？
 3. Shared adapter 为什么在 ARC 上有害（22 对 29），在 BBH 上却有益（59.8 对 57.8）？这对"per-task 还是 shared 适应"的选择说明了什么？
 4. Augmented inference 为什么必须用可逆变换并做 $t^{-1}$？层级投票相比 flattened 投票解决了什么问题？Oracle 32 对 Hierarchical 29 说明系统瓶颈在哪一环？
-5. 如果把这套方法搬到"用 K 条真实轨迹适应一个仿真预训练 world model"，$\mathcal D_{\rm TTT}$、loss、参数化和"推理增广"分别该怎么对应？哪一步最可能失效？
+5. 如果把这套方法搬到"用 K 条真实轨迹适应一个仿真预训练 world model"， $\mathcal D_{\rm TTT}$、loss、参数化和"推理增广"分别该怎么对应？哪一步最可能失效？

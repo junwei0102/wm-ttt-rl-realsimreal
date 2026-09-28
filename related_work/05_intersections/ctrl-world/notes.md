@@ -11,7 +11,7 @@
 
 - **目标**：学一个 world model $W$，能接住通用策略输出的 action chunk，预测多视角未来观测，再把预测喂回策略，形成 policy-in-the-loop 的自回归 rollout（`source/sec/2Method.tex` §3）：
   $$a_{t+1},\dots,a_{t+H}\sim\pi(\cdot\mid o_t,l)\quad(\text{Eq.1}),\qquad o_{t+1},\dots,o_{t+H}\sim W(\cdot\mid o_t,A_t)\quad(\text{Eq.2})$$
-  其中 $o_t=[I_t^1,\dots,I_t^n,q_t]$ 是 $n$ 个相机视角 + 机械臂位姿，$l$ 是语言指令；$o_{t+H}$ 再送回 $\pi$ 得到下一个 chunk。
+  其中 $o_t=[I_t^1,\dots,I_t^n,q_t]$ 是 $n$ 个相机视角 + 机械臂位姿， $l$ 是语言指令； $o_{t+H}$ 再送回 $\pi$ 得到下一个 chunk。
 - **数据/环境假设**：只用开源 DROID（Franka Panda + Robotiq 夹爪，1 个腕部相机 + 2 个随机摆放的第三视角相机）；95,599 条轨迹、564 个场景，约 76k 成功 / 19k 失败（`3Exp.tex` §5.1）。作者强调失败数据对"可控性"很关键——模型得见过"动作做错了会怎样"。
 - **奖励**：没有学 reward model；成功/失败由**人工判定**（`2Method.tex` §4.2，附录 B 给了每个任务的判定标准）。
 - **之前卡在哪**（`0Intro.tex`）：已有动作条件视频模型（IRASim、WPE、WorldEval）基本只生成**单一第三视角**，① 部分可观测导致幻觉（物体没被接触就"吸"进夹爪）；② 与需要第三视角 + 腕部视角输入的现代 VLA 不兼容；③ 缺乏对高频动作的细粒度控制；④ 长时程生成不一致。
@@ -26,19 +26,19 @@
 $$o_{t+1:t+H}\sim W(\cdot\mid o_{t-km},\dots,o_{t-m},o_t,l)$$
 实现中 $k=7$、历史帧间隔 1–2 s（§5.1），每个历史帧加**独立随机噪声**以提升鲁棒性（附录 A，相当于对上下文做 noise augmentation，缓解自回归时的误差累积）。关键在"pose-conditioned"：每个历史帧也通过逐帧 cross-attention 注入其对应的臂位姿 $q_{t-km},\dots,q_t$。这样 temporal attention 可以把"当前要去的位姿"与"历史上相同位姿的帧"匹配起来，从而取回那时看到的内容——没有显式检索模块，检索是注意力自发完成的。Fig. 4 左的注意力可视化：预测 $t=4$ s 帧时强烈关注位姿相同的 $t=0$ s 帧。
 
-**3. Frame-level action conditioning。** 把策略的 action chunk 转成 Cartesian 位姿 $a'_{t+1:t+H}$，与历史位姿拼成一条位姿序列 $[q_{t-km},\dots,q_{t-m},q_t,a'_{t+1:t+H}]$，在 spatial transformer 里做**逐帧** cross-attention：第 $i$ 帧的视觉 token（$B\cdot T, P, C$）只 attend 自己那一帧的位姿 embedding（$B\cdot T, 1, C_a$）。沿用 IRASim（及 He et al. 2025）的 frame-wise cross-attention；与"整段动作作为一个全局条件"相比，每一帧都对齐到对应时刻的动作。15 步动作（DROID 下 1 s）为省显存在时间上降采样成 5 步（附录 A），因此每次交互实际生成 5 帧未来（由附录 A 的输入形状 $7+5$ 推断，正文未直说）。另有 CLIP 语义 token 作为全局条件（Fig. 2）。
+**3. Frame-level action conditioning。** 把策略的 action chunk 转成 Cartesian 位姿 $a'_ {t+1:t+H}$，与历史位姿拼成一条位姿序列 $[q_{t-km},\dots,q_{t-m},q_t,a'_ {t+1:t+H}]$，在 spatial transformer 里做**逐帧** cross-attention：第 $i$ 帧的视觉 token（ $B\cdot T, P, C$）只 attend 自己那一帧的位姿 embedding（ $B\cdot T, 1, C_a$）。沿用 IRASim（及 He et al. 2025）的 frame-wise cross-attention；与"整段动作作为一个全局条件"相比，每一帧都对齐到对应时刻的动作。15 步动作（DROID 下 1 s）为省显存在时间上降采样成 5 步（附录 A），因此每次交互实际生成 5 帧未来（由附录 A 的输入形状 $7+5$ 推断，正文未直说）。另有 CLIP 语义 token 作为全局条件（Fig. 2）。
 
 **训练目标**（`2Method.tex` Eq.3）：目标 $x_0=o_{t+1:t+H}$ 加噪
-$$x_{t'}=\sqrt{\bar\alpha_{t'}}\,x_0+\sqrt{1-\bar\alpha_{t'}}\,\epsilon,\qquad \epsilon\sim\mathcal N(0,I)$$
+$$x_{t'}=\sqrt{\bar\alpha_{t'}}\thinspace x_0+\sqrt{1-\bar\alpha_{t'}}\thinspace\epsilon,\qquad \epsilon\sim\mathcal N(0,I)$$
 模型输入是 $[o_{t-km},\dots,o_{t-m},o_t,x_{t'}]$（历史帧 + 按扩散步 $t'$ 加噪的未来帧；历史帧不是去噪目标，但附录 A 说每个历史帧另加独立随机噪声做增强，所以并非完全"干净"），损失写成 $x_0$-prediction：
-$$\mathcal L=\mathbb E_{x_0,\epsilon,t'}\big\|\hat x_0(x_{t'},t',c)-x_0\big\|^2,\quad c=[q_{t-km},\dots,q_t,\;a'_{t+1:t+H},\;o_{t-km},\dots,o_t]$$
+$$\mathcal L=\mathbb E_{x_0,\epsilon,t'}\big\Vert\hat x_0(x_{t'},t',c)-x_0\big\Vert^2,\quad c=[q_{t-km},\dots,q_t,\thickspace a'_ {t+1:t+H},\thickspace o_{t-km},\dots,o_t]$$
 训练采样：随机取轨迹 → 均匀取当前帧 → 往回采 memory 帧 → 后续帧作目标（附录 A）。
 
 **与 VLA 对接**（附录 B）：官方 openpi 的 DROID 策略输入关节角 + 两路图像，输出关节速度；而 world model 用末端 Cartesian 位姿。作者在 DROID 上训一个 2 层 MLP adapter，再做 Franka 正运动学：
-$$a^{jv}_{t+1:t+H}=\pi(q^{joint}_t,o_t,l),\quad q^{joint}_{t+1:t+H}=\mathrm{Adapter}(q^{joint}_t,a^{jv}_{t+1:t+H}),\quad q^{cart}_{t+1:t+H}=FK(q^{joint}_{t+1:t+H})$$
+$$a^{jv}_ {t+1:t+H}=\pi(q^{joint}_ t,o_t,l),\quad q^{joint}_ {t+1:t+H}=\mathrm{Adapter}(q^{joint}_ t,a^{jv}_ {t+1:t+H}),\quad q^{cart}_ {t+1:t+H}=FK(q^{joint}_ {t+1:t+H})$$
 策略输出不足 15 步时用 dummy action 补齐，只取有效部分的预测（§5.1）。
 
-**推理 / 使用**（Algorithm 1）：对每个任务 $l^i$ 与初始观测 $o^i_0$，循环 $N$ 次：扰动后的策略出 chunk → 取稀疏历史 $h$ → $W(h,o_t,a_{t+1:t+H})$ 生成下一段 → 拼到 $\tau$；结束后人工判成功，成功的放进 $D_s$；最后 $\mathcal L_\theta=\mathbb E_{D_s}\|\pi_\theta(o_t,l)-a_{t:t+H}\|^2$ 做 SFT（Algorithm 1 把它写成 MSE；实际用 openpi 官方代码微调 π0.5，附录 C）。
+**推理 / 使用**（Algorithm 1）：对每个任务 $l^i$ 与初始观测 $o^i_0$，循环 $N$ 次：扰动后的策略出 chunk → 取稀疏历史 $h$ → $W(h,o_t,a_{t+1:t+H})$ 生成下一段 → 拼到 $\tau$；结束后人工判成功，成功的放进 $D_s$；最后 $\mathcal L_\theta=\mathbb E_{D_s}\Vert\pi_\theta(o_t,l)-a_{t:t+H}\Vert^2$ 做 SFT（Algorithm 1 把它写成 MSE；实际用 openpi 官方代码微调 π0.5，附录 C）。
 
 **为什么要"扰动"**：作者观察到固定初始观测与指令时，VLA 行为几乎确定（反复抓同一个物体），搜索空间太窄。两种结构化扰动：① 用 LLM（Gemini）改写指令；② 用线性插值运动规划把机械臂先移到随机初始位姿（§4.2、§5.4）。
 
@@ -57,7 +57,7 @@ $$a^{jv}_{t+1:t+H}=\pi(q^{joint}_t,o_t,l),\quad q^{joint}_{t+1:t+H}=\mathrm{Adap
 
 **消融**（Table 2）：第三视角上，去掉 memory → FVD 97.4→105.5；去掉 frame-level cond → 122.7。腕部视角：full 19.18 PSNR / FVD 127.1；w/o memory 18.84 / 133.1；w/o frame-level cond 15.69 / 179.1；w/o joint pred 15.94 / 158.1（joint pred 消融只在腕部视角上报）。去掉 frame-level cond 在腕部视角上的影响明显更大（FVD +52.0，第三视角 +25.3）；去掉 memory 的影响两视角相近（FVD +6.0 vs +8.1）。结论：**逐帧动作条件与多视角联合预测是主要贡献者**，memory 在指标上的增益较小，但 Fig. 4 定性显示去掉 memory 会变糊；Fig. 4 还展示了几厘米级别的动作差异能生成不同 rollout。
 
-**策略评估**（§5.3，Fig. 7，附录 Table 3）：作者自搭 DROID 平台、相机随机摆放，world model **zero-shot** 用在新场景/新相机位姿上。3 个策略 × 7 个任务（Pick-Place、Fold-Towel、Drawer、Wipe-table、Close-laptop、Pull-tissue、Stack），真机与想象用同一初始观测，每条想象轨迹 20 次交互（Fig. 6）。Fig. 7 的回归线：instruction following 为 $y=0.87x-0.04$，success rate 为 $y=0.81x-0.11$（$x$ 为真机，$y$ 为 world model）。论文没有报相关系数；我用 Table 3 的 21 个点自算得 Pearson $r\approx0.97$（instruction following）和 $\approx0.83$（success rate），自算回归线（IF $y=0.87x-0.04$；SR $y=0.82x-0.11$）与 Fig. 7 基本一致。按策略对 7 个任务取平均（自算），真机与想象里都是 π0 < π0-FAST < π0.5，排名保持。但 world model **系统性低估执行成功率**，且在接触/铰接物体上偏差很大：Close-laptop 的 π0.5 真机 SR 0.70 vs 想象 0.05，Drawer 的 π0.5 0.80 vs 0.30（Table 3）。
+**策略评估**（§5.3，Fig. 7，附录 Table 3）：作者自搭 DROID 平台、相机随机摆放，world model **zero-shot** 用在新场景/新相机位姿上。3 个策略 × 7 个任务（Pick-Place、Fold-Towel、Drawer、Wipe-table、Close-laptop、Pull-tissue、Stack），真机与想象用同一初始观测，每条想象轨迹 20 次交互（Fig. 6）。Fig. 7 的回归线：instruction following 为 $y=0.87x-0.04$，success rate 为 $y=0.81x-0.11$（ $x$ 为真机， $y$ 为 world model）。论文没有报相关系数；我用 Table 3 的 21 个点自算得 Pearson $r\approx0.97$（instruction following）和 $\approx0.83$（success rate），自算回归线（IF $y=0.87x-0.04$；SR $y=0.82x-0.11$）与 Fig. 7 基本一致。按策略对 7 个任务取平均（自算），真机与想象里都是 π0 < π0-FAST < π0.5，排名保持。但 world model **系统性低估执行成功率**，且在接触/铰接物体上偏差很大：Close-laptop 的 π0.5 真机 SR 0.70 vs 想象 0.05，Drawer 的 π0.5 0.80 vs 0.30（Table 3）。
 
 **策略改进**（§5.4，Fig. 9，附录 Table 4–7）：基座 π0.5-DROID；每个任务在想象中生成 400 条轨迹，人工保留 25–50 条成功轨迹，微调 2k 步（4×H100，附录 C）。
 
@@ -96,7 +96,7 @@ $$a^{jv}_{t+1:t+H}=\pi(q^{joint}_t,o_t,l),\quad q^{joint}_{t+1:t+H}=\mathrm{Adap
 
 ## 前置知识
 
-1. 扩散模型训练：前向加噪、$\epsilon$/$x_0$-prediction、EDM 预条件（SVD 用的就是这一套）。
+1. 扩散模型训练：前向加噪、 $\epsilon/x_0$-prediction、EDM 预条件（SVD 用的就是这一套）。
 2. Latent video diffusion 与 SVD 结构：VAE latent、spatial / temporal 分解注意力、cross-attention 条件注入。
 3. 动作条件视频预测 / learned simulator：UniSim、IRASim 的 frame-level conditioning。
 4. VLA 与 action chunking：π0 / π0.5（flow matching 动作头）、openpi 的 DROID 接口（关节速度、关节角）、正运动学 FK。

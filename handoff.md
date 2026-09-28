@@ -45,6 +45,9 @@
 3. **论文内部自相矛盾的数字不少** —— 例如 TD-MPC2 的 57.1 / 54.2 / 56.54、SIMPLER Table I 与 Table IV 的 Drawer 列、SplatSim 97.5 vs 96.25、ASAP 150 vs 173。笔记里都注明了，引用时看笔记里标的是哪张表。
 4. **venue 不能从项目主页或 GitHub README 直接抄** —— 有几篇 index.json 初稿里的 venue 是错的或只是 workshop。以笔记头部（已核实）为准。
 5. **arXiv 抓取要串行** —— 并发抓会被限流。`fetch-all.sh` 故意串行，全量约 20 分钟。
+6. **GitHub 上公式不渲染** —— 第一版笔记里有 800 多处公式在 GitHub 上显示成原始 LaTeX，原因有三类：`$` 紧贴中文或全角标点；markdown 先吃掉公式里的反斜杠转义；`_`、`*` 被当成斜体。已用 `scripts/fix_md_render.py` 全部修好。
+   - 验证方式：用 GitHub /markdown API 实际渲染 68 个文件，3854 条公式全部识别、内容与源码逐字一致；MathJax 和 KaTeX 解析 0 错误。
+   - 以后改 markdown 后先跑一次这个脚本。
 
 ---
 

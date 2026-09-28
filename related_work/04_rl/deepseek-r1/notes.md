@@ -21,21 +21,21 @@ R1-Zero 在 DeepSeek-V3-Base 上**不做 SFT**，直接用 GRPO 加规则可验�
 
 **① GRPO**（`sn-article.tex` §2.1 Eq.1–3；附录 A.3 Eq.11–13 重复）。对每个 $q$，用 $\pi_{\theta_{old}}$ 采样一组 $G$ 个输出：
 
-$$\mathcal J_{GRPO}(\theta)=\mathbb E_{q\sim P(Q),\,\{o_i\}_{i=1}^G\sim\pi_{\theta_{old}}(O|q)}\frac1G\sum_{i=1}^G\Big(\min\big(\rho_iA_i,\ \mathrm{clip}(\rho_i,1-\varepsilon,1+\varepsilon)A_i\big)-\beta\,\mathbb D_{KL}(\pi_\theta\|\pi_{ref})\Big),\quad \rho_i=\frac{\pi_\theta(o_i|q)}{\pi_{\theta_{old}}(o_i|q)}$$
+$$\mathcal J_{GRPO}(\theta)=\mathbb E_{q\sim P(Q),\thinspace\lbrace o_i\rbrace_{i=1}^G\sim\pi_{\theta_{old}}(O|q)}\frac1G\sum_{i=1}^G\Big(\min\big(\rho_iA_i,\ \mathrm{clip}(\rho_i,1-\varepsilon,1+\varepsilon)A_i\big)-\beta\thinspace\mathbb D_{KL}(\pi_\theta\Vert\pi_{ref})\Big),\quad \rho_i=\frac{\pi_\theta(o_i|q)}{\pi_{\theta_{old}}(o_i|q)}$$
 
-$$A_i=\frac{r_i-\mathrm{mean}(\{r_1..r_G\})}{\mathrm{std}(\{r_1..r_G\})},\qquad \mathbb D_{KL}=\frac{\pi_{ref}(o_i|q)}{\pi_\theta(o_i|q)}-\log\frac{\pi_{ref}(o_i|q)}{\pi_\theta(o_i|q)}-1$$
+$$A_i=\frac{r_i-\mathrm{mean}(\lbrace r_1..r_G\rbrace)}{\mathrm{std}(\lbrace r_1..r_G\rbrace)},\qquad \mathbb D_{KL}=\frac{\pi_{ref}(o_i|q)}{\pi_\theta(o_i|q)}-\log\frac{\pi_{ref}(o_i|q)}{\pi_\theta(o_i|q)}-1$$
 
-- **不要 critic**：baseline 取同一问题下 $G$ 个样本奖励的均值，再按标准差归一化。$o_i$ 的所有 token 共用同一个 $A_i$（Figure 3 对比了 PPO 和 GRPO 的数据流）。
-- **KL 放进 loss，而不是像 PPO 那样当 per-token dense reward**。A.3 的理由是：PPO 最大化累计回报，每个 token 扣一次 KL，等于隐式惩罚长度，会阻止回复变长。这里用 Schulman 的 k3 估计量。白板推导（我补的）：令 $x=\pi_{ref}/\pi_\theta$，在 $o\sim\pi_\theta$ 下 $\mathbb E[x]=1$，所以 $\mathbb E[x-\log x-1]=\mathbb E[\log\frac{\pi_\theta}{\pi_{ref}}]=\mathrm{KL}(\pi_\theta\|\pi_{ref})$。又因为 $x-\log x-1\ge0$，每个样本的估计都非负。（严格说，实际样本来自 $\pi_{\theta_{old}}$，只有 $\pi_\theta=\pi_{\theta_{old}}$ 时这个期望才严格等于 KL。）另外每 400 步把 $\pi_{ref}$ 重置为当前策略（§2.1；理由见 A.3），在探索范围和训练稳定之间折中。
-- **退化组**（我的推导，论文没讨论）：若一组 16 个回答全对或全错，std=0，$A_i$ 无定义（分母加一个小常数后为 0），这个问题贡献不了 advantage 项的策略梯度，只剩 KL 项。所以只有"有时对、有时错"的题目才提供信号。
+- **不要 critic**：baseline 取同一问题下 $G$ 个样本奖励的均值，再按标准差归一化。 $o_i$ 的所有 token 共用同一个 $A_i$（Figure 3 对比了 PPO 和 GRPO 的数据流）。
+- **KL 放进 loss，而不是像 PPO 那样当 per-token dense reward**。A.3 的理由是：PPO 最大化累计回报，每个 token 扣一次 KL，等于隐式惩罚长度，会阻止回复变长。这里用 Schulman 的 k3 估计量。白板推导（我补的）：令 $x=\pi_{ref}/\pi_\theta$，在 $o\sim\pi_\theta$ 下 $\mathbb E[x]=1$，所以 $\mathbb E[x-\log x-1]=\mathbb E[\log\frac{\pi_\theta}{\pi_{ref}}]=\mathrm{KL}(\pi_\theta\Vert\pi_{ref})$。又因为 $x-\log x-1\ge0$，每个样本的估计都非负。（严格说，实际样本来自 $\pi_{\theta_{old}}$，只有 $\pi_\theta=\pi_{\theta_{old}}$ 时这个期望才严格等于 KL。）另外每 400 步把 $\pi_{ref}$ 重置为当前策略（§2.1；理由见 A.3），在探索范围和训练稳定之间折中。
+- **退化组**（我的推导，论文没讨论）：若一组 16 个回答全对或全错，std=0， $A_i$ 无定义（分母加一个小常数后为 0），这个问题贡献不了 advantage 项的策略梯度，只剩 KL 项。所以只有"有时对、有时错"的题目才提供信号。
 
 **② 奖励**
-- R1-Zero：$Reward_{rule}=Reward_{acc}+Reward_{format}$，两项等权（Eq.4）。format 奖励要求推理放在 `<think>` 标签里。推理任务**刻意不用** neural RM（§2.2）。
+- R1-Zero： $Reward_{rule}=Reward_{acc}+Reward_{format}$，两项等权（Eq.4）。format 奖励要求推理放在 `<think>` 标签里。推理任务**刻意不用** neural RM（§2.2）。
 - R1 额外加三类：
   - language consistency 奖励 $Reward_{language}=\frac{Num(Words_{target})}{Num(Words)}$（Eq.7）；
   - helpful RM（pairwise，66,000 对，只看最终 summary）；
   - safety RM（point-wise，106,000 条 prompt，看整条回复）（§3.1，Eq.5–6）。
-  - 第二阶段 RL 的总奖励为 $Reward=Reward_{reasoning}+Reward_{general}+Reward_{language}$，其中 $Reward_{reasoning}=Reward_{rule}$，$Reward_{general}=Reward_{reward\_model}+Reward_{format}$（Eq.8–10）。每条通用 query 归属 safety 或 helpfulness 数据集之一，取对应 RM 的奖励（§3.1）。
+  - 第二阶段 RL 的总奖励为 $Reward=Reward_{reasoning}+Reward_{general}+Reward_{language}$，其中 $Reward_{reasoning}=Reward_{rule}$， $Reward_{general}=Reward_{\verb|reward_model|}+Reward_{format}$（Eq.8–10）。每条通用 query 归属 safety 或 helpfulness 数据集之一，取对应 RM 的奖励（§3.1）。
 
 **③ R1-Zero 训练配置**（§2.1）
 - 基本设置：lr 3e-6，KL 系数 $\beta$=0.001，rollout 温度 1，每题 $G$=16。
@@ -54,7 +54,7 @@ $$A_i=\frac{r_i-\mathrm{mean}(\{r_1..r_G\})}{\mathrm{std}(\{r_1..r_G\})},\qquad 
 | Rejection sampling + SFT | 从第一阶段 RL 的 checkpoint 做拒绝采样，得到约 600k 推理样本（部分题由 DeepSeek-V3 对照 ground truth 判分，相当于 generative RM）；再加约 200k 非推理样本（部分复用 V3 的 SFT 数据，另加软件工程类数据），共 804,745 条（Table 5）。**重新微调 V3-Base**（Figure 2） | Dev3 |
 | 全场景 RL | 规则奖励 + RM。温度降到 0.7，共 1,700 步，**只在最后 400 步**才加入通用数据和 preference 奖励，原因是继续训会 reward hacking（§3.2.2） | R1 |
 
-- 关于 $\varepsilon$=10，§3.2.1 的说法是：取小了会截断大量 token 的梯度，取大了训练不稳；作者贡献说明里也提到这是"large PPO clipping strategy"。我的分析：比率恒为正，所以下界 $1-\varepsilon<0$ 永不生效。结果是 $A<0$ 时完全不 clip，$A>0$ 时只在 $\rho>11$ 才截断，和 PPO 原意（[../ppo/notes.md](../ppo/notes.md)）的"小 trust region"已经相差很远。
+- 关于 $\varepsilon$=10，§3.2.1 的说法是：取小了会截断大量 token 的梯度，取大了训练不稳；作者贡献说明里也提到这是"large PPO clipping strategy"。我的分析：比率恒为正，所以下界 $1-\varepsilon<0$ 永不生效。结果是 $A<0$ 时完全不 clip， $A>0$ 时只在 $\rho>11$ 才截断，和 PPO 原意（[../ppo/notes.md](../ppo/notes.md)）的"小 trust region"已经相差很远。
 - **Distillation**（F，B.4.3）：用这 800k 数据对 Qwen2.5 和 Llama 做纯 SFT，2–3 epoch，batch 64，不做 RL。
 - **推理与评测**（D.1）：温度 0.6，top-p 0.95。pass@1 取 $k$ 个样本的平均正确率：AIME 和 GPQA 用 $k$=64，MATH 和 CF 用 16，LCB 用 8。
 - **Infra**（B.1，Figure 5）：分四个模块。
@@ -100,7 +100,7 @@ $$A_i=\frac{r_i-\mathrm{mean}(\{r_1..r_G\})}{\mathrm{std}(\{r_1..r_G\})},\qquad 
 
 **我读出来的**：
 1. **"纯 RL 涌现"有混杂因素**：A.1 承认 V3-Base 的预训练语料里有部分网页含大量 OpenAI 模型生成的回答，数学和代码内容中也有大量推理轨迹。所以 R1-Zero 更像是把已有能力**激发**出来，而不是从零学会。Table 17 只是部分回应了这一点。论文还引了 Oat-Zero，那篇的标题本身就在质疑 aha moment。B.3.2 也承认，R1 那种生动的"I"式思考是 DeepSeek 设计出来的启发式风格，不代表模型具有类人智能。
-2. **在 671B 规模上没有做算法消融**：$G$、$\varepsilon$、$\beta$、ref 重置、std 归一化的作用都没有拆开测。GRPO vs PPO 只在一个 16B 模型、一个任务上比过，种子数也没报告。
+2. **在 671B 规模上没有做算法消融**： $G$、 $\varepsilon$、 $\beta$、ref 重置、std 归一化的作用都没有拆开测。GRPO vs PPO 只在一个 16B 模型、一个任务上比过，种子数也没报告。
 3. **公式层级含糊**：Eq.1 写的是序列级 ratio，但 §3.2.1 讲 clip 时说"大量 token"，暗示实际按 token 级实现，论文没有说清楚。
 4. **数据账对不上**（我的算术）：10,400 步 × 32 题 ÷ 1.6 epoch ≈ 208K 道题，但 Table 4 推理类 prompt 合计只有 26K+17K+22K+15K = 80K（B.3.1 正文另提 8k bug fixing 题，也只有 88K）。R1-Zero 到底用了多少题没交代。此外 §B.4.4 写"约 4 天，即约 80 小时"，这句本身就不自洽；Table 7 的 41K GPU·h ÷ 512 卡 ≈ 80 h。
 5. **评测口径**：o1-1217 的分数直接抄官方报告，协议不同。AlpacaEval 和 ArenaHard 由 GPT-4-Turbo 当 judge，而且只给它看 summary。
@@ -149,16 +149,16 @@ $$A_i=\frac{r_i-\mathrm{mean}(\{r_1..r_G\})}{\mathrm{std}(\{r_1..r_G\})},\qquad 
   - R1-Zero：64×8 H800，约 198 h，101K GPU·h；
   - SFT 数据构造：5K GPU·h；
   - R1：41K GPU·h；
-  - 合计 147K H800 GPU·h，按 $2/GPU·h 折合约 $294K；
+  - 合计 147K H800 GPU·h，按 \$2/GPU·h 折合约 \$294K；
   - 前期先在 A100 上用约 30B 的模型做探索。
   - 这个规模不可复现。
 - **最小可复现实验**：做 R1-Zero 式实验，不做 R1 全流程。
   - 模型：base 选 Qwen2.5-Math-1.5B/7B 这一类。注意 G.1 警告 7B dense 可能不涨，Table 17 的 Qwen2-Math-7B 却有效，所以选数学特化的 base 更稳。
   - 数据与模板：带数值答案的数学题，套 Table 1 模板，奖励 = 答案匹配（0/1）+ 格式。
-  - 超参：尽量照搬论文，$G$=16，$\beta$=0.001，温度 1，lr 在 2e-6 到 3e-6 之间（B.4.1），每 400 步重置 ref。
-  - 监控：reward、平均回复长度、C.2 那 10 个反思词的频率、MATH-500 pass@1（温度 0.6，$k$=16）。
+  - 超参：尽量照搬论文， $G$=16， $\beta$=0.001，温度 1，lr 在 2e-6 到 3e-6 之间（B.4.1），每 400 步重置 ref。
+  - 监控：reward、平均回复长度、C.2 那 10 个反思词的频率、MATH-500 pass@1（温度 0.6， $k$=16）。
   - 消融：
-    - (a) GRPO vs PPO（$\lambda$=0.95 / 1.0），对照 Figure 4；
+    - (a) GRPO vs PPO（ $\lambda$=0.95 / 1.0），对照 Figure 4；
     - (b) KL 放进 loss vs 作为 per-token reward，看长度是否被抑制；
     - (c) 去掉 std 归一化；
     - (d) 不同 $\varepsilon$。
@@ -173,7 +173,7 @@ $$A_i=\frac{r_i-\mathrm{mean}(\{r_1..r_G\})}{\mathrm{std}(\{r_1..r_G\})},\qquad 
 ## 自测问题
 
 1. 写出 GRPO 的 $A_i$。为什么它可以替代 value model？一组 16 个回答全对时梯度是多少？这对 RL 训练集的难度分布提出了什么要求？
-2. 推导 k3 估计量的期望等于 $\mathrm{KL}(\pi_\theta\|\pi_{ref})$。为什么"KL 放进 loss"比"per-token KL 作为 reward"更有利于回复变长？
+2. 推导 k3 估计量的期望等于 $\mathrm{KL}(\pi_\theta\Vert\pi_{ref})$。为什么"KL 放进 loss"比"per-token KL 作为 reward"更有利于回复变长？
 3. Figure 4 中 PPO 取 $\lambda$=1.0 为什么比 0.95 好？从 GAE 的 bias-variance 与 outcome-only reward 两个角度解释。
 4. R1 的四个阶段各自修的是 R1-Zero 的什么问题？Table 3 中 Dev1 的 AIME 为什么低于 R1-Zero？第三阶段的 SFT 数据从哪来，微调的是哪个 checkpoint？
 5. 为什么 preference RM 只在最后 400 步使用？结合 Figure 6，说明规则奖励为什么更难被 hack。如果把机器人 RL 的 reward 换成 VLM 打分，会出现哪种对应风险？

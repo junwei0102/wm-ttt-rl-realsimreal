@@ -11,8 +11,8 @@ LaCT（Large Chunk Test-Time Training）把 TTT 层更新 fast weights 的单位
 
 - **语境**：这里的 TTT 指"TTT 作为序列建模层"（[TTT layers](../ttt-layers/notes.md) 一线），不是应对分布偏移的 TTT（[Sun et al. 2019](../ttt-self-supervised/notes.md)、[Tent](../tent/notes.md)）。每个 token 投影出 $q_i,k_i,v_i$。fast weight 网络 $f_W$ 有两种操作：**update** $W\leftarrow W-\eta\nabla_W\mathcal{L}(f_W(k),v)$ 和 **apply** $o=f_W(q)$（`source/sections/02_preliminary.tex` Eq.1–2）。inner loop 在推理时把 KV 关联写进 $W$；outer loop 端到端训练 slow weights，包括 QKV 投影、lr 预测头和可学习的初始 fast weights。
 - **卡点 1：硬件利用率低**。以 fast weight $h\times h$ 乘 chunk 输入 $b\times h$ 为例，BF16 下的理想 compute-to-memory ratio 是（Eq.3）：
-  $$r=\frac{2h^2b}{2h^2+4hb}=\frac{b}{1+2b/h}\le\min(h/2,\,b)$$
-  $h=64$ 或 $b=16$ 时，$r$ 远低于 H100 约 290 FLOPs/byte 的峰值，运算是 memory-bound。在 Fig.1a 的柱状标注里，原版 TTT-MLP 在 H100 上只有 31 TFLOPS，LaCT 是 515；A100 上 TTT-Linear 是 7，LaCT 是 205。定制 kernel 的做法是把 fast weights 留在 SRAM 里跨步更新，但这要求 fast weights 基本在各 SM 内独立演化以减少通信，对大的非线性 state（SwiGLU fast weight）和 Muon 更新不成立；而且 kernel 开发周期长（Sec.2.2）。
+  $$r=\frac{2h^2b}{2h^2+4hb}=\frac{b}{1+2b/h}\le\min(h/2,\thinspace b)$$
+  $h=64$ 或 $b=16$ 时， $r$ 远低于 H100 约 290 FLOPs/byte 的峰值，运算是 memory-bound。在 Fig.1a 的柱状标注里，原版 TTT-MLP 在 H100 上只有 31 TFLOPS，LaCT 是 515；A100 上 TTT-Linear 是 7，LaCT 是 205。定制 kernel 的做法是把 fast weights 留在 SRAM 里跨步更新，但这要求 fast weights 基本在各 SM 内独立演化以减少通信，对大的非线性 state（SwiGLU fast weight）和 Muon 更新不成立；而且 kernel 开发周期长（Sec.2.2）。
 - **卡点 2：state 太小**。以往方法的 state/参数比为 0.1%–5%，LaCT 不低于 40%（Sec.2.2）。
 - **卡点 3：结构假设**。小 mini-batch 默认数据是 1D 有序序列，不适合集合（多视角图像）或 N 维网格（视频）。
 - **假设**：监督/自监督的端到端训练，不涉及 RL；NVS 需要已知相机位姿；视频用教师强制（teacher forcing）训练。
@@ -20,17 +20,17 @@ LaCT（Large Chunk Test-Time Training）把 TTT 层更新 fast weights 的单位
 ## 核心方法
 
 **1. 大 chunk 更新**（`source/sections/03_method.tex` Eq.4–5）：
-$$g=\nabla_W\sum_{i=1}^{b}\eta_i\,\mathcal{L}\big(f_W(k_i),v_i\big),\qquad W\leftarrow\mathrm{weight\text{-}update}(W,g)$$
-同一个 chunk 里的所有 $q_i$ 共享更新后的 $W$。$\eta_i=\mathrm{softplus}(\mathrm{Linear}(x_i)+b)$ 由每个 token 预测，三个矩阵各一个（Alg.1）。
+$$g=\nabla_W\sum_{i=1}^{b}\eta_i\thinspace\mathcal{L}\big(f_W(k_i),v_i\big),\qquad W\leftarrow\mathrm{weight\text{-}update}(W,g)$$
+同一个 chunk 里的所有 $q_i$ 共享更新后的 $W$。 $\eta_i=\mathrm{softplus}(\mathrm{Linear}(x_i)+b)$ 由每个 token 预测，三个矩阵各一个（Alg.1）。
 
-**2. Fast weight 与 loss**：fast weight 网络是无 bias 的 SwiGLU-MLP，$f_W(x)=W_2[\mathrm{SiLU}(W_1x)\circ(W_3x)]$（Eq.6）；loss 是负点积 $\mathcal{L}=-f_W(k_i)^\top v_i$（Eq.7）。
-*白板推导（笔者）*：把 $f_W$ 换成线性的 $f_W(x)=Wx$，就有 $\nabla_W\mathcal{L}=-v k^\top$，更新变成 $W\leftarrow W+\sum_i\eta_i v_ik_i^\top$，也就是无衰减、按 chunk 做的 linear attention。LaCT 与它的区别主要来自三处：非线性、权重归一化、Muon（此外还有可选的 momentum）。用点积 loss 时不需要算完整的 $f_W(k)$；按三个矩阵的实际 state（$3d^2r/\mathit{nh}$）计，每 token 约 $6\times$State Size FLOPs（`supp.tex` Eq.15 写作 $18n\frac{d^2}{\mathit{nh}}r=6\ast\text{State Size}$，右边漏写了 $n$；而且 Eq.14 把 State Size 写成 $\frac{d^2}{\mathit{nh}}r$，漏了因子 3，与 Table 3 的 $2304d$、附录"4 heads 时每 block $\frac34 d^2$"不一致）。
+**2. Fast weight 与 loss**：fast weight 网络是无 bias 的 SwiGLU-MLP， $f_W(x)=W_2[\mathrm{SiLU}(W_1x)\circ(W_3x)]$（Eq.6）；loss 是负点积 $\mathcal{L}=-f_W(k_i)^\top v_i$（Eq.7）。
+*白板推导（笔者）*：把 $f_W$ 换成线性的 $f_W(x)=Wx$，就有 $\nabla_W\mathcal{L}=-v k^\top$，更新变成 $W\leftarrow W+\sum_i\eta_i v_ik_i^\top$，也就是无衰减、按 chunk 做的 linear attention。LaCT 与它的区别主要来自三处：非线性、权重归一化、Muon（此外还有可选的 momentum）。用点积 loss 时不需要算完整的 $f_W(k)$；按三个矩阵的实际 state（ $3d^2r/\mathit{nh}$）计，每 token 约 $6\times$ State Size FLOPs（`supp.tex` Eq.15 写作 $18n\frac{d^2}{\mathit{nh}}r=6\ast\text{State Size}$，右边漏写了 $n$；而且 Eq.14 把 State Size 写成 $\frac{d^2}{\mathit{nh}}r$，漏了因子 3，与 Table 3 的 $2304d$、附录"4 heads 时每 block $\frac34 d^2$"不一致）。
 
 **3. 非线性 weight-update**（Eq.8–10）：
 $$W\leftarrow\mathrm{L2Norm}(W-g)\quad\text{或}\quad W\leftarrow\mathrm{L2Norm}(W-\mathrm{Muon}(g)),\qquad \mathrm{Muon}(g)\simeq UV^\top\ (g=USV^\top)$$
 - Muon 用 5 次 Newton–Schulz 迭代做正交化，系数 $(a,b,c)=(3.4445,-4.7750,2.0315)$（supp Eq.16）。Muon 把梯度的绝对尺度归一化掉了，所以 $\eta_i$ 只表示 chunk 内 token 之间的相对重要性。
 - 在 Alg.1 里，L2Norm 的具体做法是 `(w-g)/‖w-g‖·‖w‖`，沿输入维保持更新前的范数。这一步替代了 weight decay。作者的类比：把序列维看成深度，TTT 更新就是"时间上的残差"，这个归一化相当于 post-LN。
-- Momentum 沿用 Titans 的做法：$\beta_i=\sigma(\mathrm{Linear}(x_i))$ 在 chunk 内取平均，$M\leftarrow M\bar\beta+g$，$W\leftarrow\mathrm{weight\text{-}update}(W,M)$（supp Eq.19–20）。
+- Momentum 沿用 Titans 的做法： $\beta_i=\sigma(\mathrm{Linear}(x_i))$ 在 chunk 内取平均， $M\leftarrow M\bar\beta+g$， $W\leftarrow\mathrm{weight\text{-}update}(W,M)$（supp Eq.19–20）。
 
 **4. update 与 apply 的顺序决定等价 mask**（Fig.3）：
 - 整个序列作为一个 chunk，先 update 再 apply，约等于双向 full attention（依 Fig.3a 图示与 Alg.1 注释；Sec.3.1 正文此处误写成"apply followed by update"）；
@@ -67,12 +67,12 @@ $$W\leftarrow\mathrm{L2Norm}(W-g)\quad\text{或}\quad W\leftarrow\mathrm{L2Norm}
 **视频**（Fig.6，只报告了验证 denoising loss）：LaCT 与 full block-causal attention 接近，优于 SWA 和 Mamba2+SWA。把 window 从 4 帧加到 6 帧也有收益，但小于加入 LaCT 的收益。两者都在 10 s 视频上再微调 1,000 iter 后评测，LaCT 相对 SWA 的优势仍在（Fig.6c）。最大配置为 14B 模型、8.8 s、56,160 个视觉 token（交错序列共 107K）。
 
 **消融**（Sec.5.4）
-- **State size**（Fig.7a）：NVS 取 $0.75d^2$–$12d^2$（14 blocks、$d=768$、单头，SwiGLU 中间维 192–3072；其中 $1.5d^2$ 与 $3d^2$ 两条曲线几乎重合），LM 取 $0.375d^2$–$3d^2$（760M）；整体随 state 增大而变好，而且序列越长差距越大（$12d^2$ 时 fast weights 占参数的 40%）。Fig.1c 的 LM 验证 loss 也随 state 增大而下降。
+- **State size**（Fig.7a）：NVS 取 $0.75d^2\text{–}12d^2$（14 blocks、 $d=768$、单头，SwiGLU 中间维 192–3072；其中 $1.5d^2$ 与 $3d^2$ 两条曲线几乎重合），LM 取 $0.375d^2\text{–}3d^2$（760M）；整体随 state 增大而变好，而且序列越长差距越大（ $12d^2$ 时 fast weights 占参数的 40%）。Fig.1c 的 LM 验证 loss 也随 state 增大而下降。
 - **Optimizer**（Fig.7b）：NVS 子图只比较了 GD 与 Muon（Muon 更好，没有 Momentum 曲线）；LM 子图上 Muon 好于 Momentum，Momentum 好于 GD。
 - **非线性**（Fig.8a）：NVS 上 SwiGLU $6d^2$ 胜过 Linear $9d^2$；LM 上 SwiGLU $0.375d^2$ 胜过 Linear $0.5d^2$。
 - **chunk vs per-token**（Fig.8b）：
   - NVS：同为 $d^2$ 的 state，线性 LaCT 明显优于双向 Mamba2。
-  - LM：线性 LaCT（$0.25d^2$）**不如** GLA-SWA；要换成 SwiGLU $1.5d^2$ 加 Muon 才反超。
+  - LM：线性 LaCT（ $0.25d^2$）**不如** GLA-SWA；要换成 SwiGLU $1.5d^2$ 加 Muon 才反超。
   - 结论：大 chunk 本身在 1D 文本上并不占优，它的真正作用是让大的非线性 state 和 Muon 在工程上变得可行。
 
 ## 局限与论文没说的
@@ -84,7 +84,7 @@ $$W\leftarrow\mathrm{L2Norm}(W-g)\quad\text{或}\quad W\leftarrow\mathrm{L2Norm}
 - 视频缺少可靠指标，只能看验证 loss。
 
 **笔者读出的问题**：
-- **粒度与延迟的代价**：chunk 内的 token 不能通过 TTT 互相看见，完全依赖 window attention；memory 也要攒满一个 chunk 才更新一次。对逐步到达的小观测（机器人闭环控制、流式输入）来说，$b$ 天然很小，Eq.3 的效率论证就不成立了。论文没有讨论在线延迟。
+- **粒度与延迟的代价**：chunk 内的 token 不能通过 TTT 互相看见，完全依赖 window attention；memory 也要攒满一个 chunk 才更新一次。对逐步到达的小观测（机器人闭环控制、流式输入）来说， $b$ 天然很小，Eq.3 的效率论证就不成立了。论文没有讨论在线延迟。
 - **检索仍落后 full attention**：3B 的 S-NIAH@32K 为 48.0 vs 91.2。Fig.5 图注说"Muon 一致优于 Momentum"，这只在所画的 760M S-NIAH-1、3B S-NIAH-2 和 loss 曲线上成立：Table 8 中 760M 的 S-NIAH 平均在 4K/8K/16K 上 Muon（77.9/60.5/40.0）低于 Momentum（89.9/64.3/40.9）；3B multi-needle 平均 @4K 上 Muon 也明显差于 Momentum（48.8 vs 90.4，Table 9）。正文没有提这些。
 - **评测口径**：LM 只训练了 40B/60B token，没有短上下文下游基准，RULER 也只评到训练长度；视频数据是内部私有集，没有 FVD 或人评；3DGS/LongLRM 的数字只在图里。引言说"outperforms 3DGS"，Fig.4 的图注却只说在 128 views 时"competitive"。
 - **文本不一致**：Sec.5.4 写成"671 tokens"，应为 671B；场景数据在正文写 1.8T token，附录是 1.5T 预训练加 4 个各"约 100B"的微调阶段（合计约 1.9T，略有出入）；Sec.3.2 Eq.9 的 Muon 更新作用在 $g$ 上、没有 momentum，Table 3 的 Muon 行却是 $\mathrm{Muon}(M)$（附录称 Muon 默认带 momentum）；Fig.3a 的正文描述与图示顺序相反；supp Eq.14/15 的 State Size 与 FLOPs 公式有笔误（见核心方法第 2 条）。
@@ -113,7 +113,7 @@ $$W\leftarrow\mathrm{L2Norm}(W-g)\quad\text{或}\quad W\leftarrow\mathrm{L2Norm}
 
 ## 前置知识
 
-1. Linear attention / fast weight programmer（$S_t=S_{t-1}+v_tk_t^\top$），以及 DeltaNet 的"在线回归"视角；
+1. Linear attention / fast weight programmer（ $S_t=S_{t-1}+v_tk_t^\top$），以及 DeltaNet 的"在线回归"视角；
 2. TTT layers 的 inner loop / outer loop 和 mini-batch TTT；
 3. Roofline 模型：算术强度（FLOPs/byte），memory-bound 与 compute-bound；
 4. SwiGLU、weight normalization、RMSNorm、RoPE；
@@ -134,18 +134,18 @@ $$W\leftarrow\mathrm{L2Norm}(W-g)\quad\text{或}\quad W\leftarrow\mathrm{L2Norm}
   - 视频：数据私有，无法严格复现。
 - **最小复现实验**：
   1. 用约 50 行 PyTorch 实现 Alg.1。先做单元测试：线性 $f$、不做归一化时，更新结果应等于 chunk 版 linear attention；再用 $\partial o_i/\partial x_j$ 的依赖模式验证 Fig.3 的四种 mask。
-  2. 单卡微基准：扫 $b\in\{16,64,256,2048,16K\}$、$h\in\{64,256,768\}$，测实际 TFLOPS，检验 Eq.3 的趋势。
+  2. 单卡微基准：扫 $b\in\lbrace16,64,256,2048,16K\rbrace$、 $h\in\lbrace64,256,768\rbrace$，测实际 TFLOPS，检验 Eq.3 的趋势。
   3. 用官方 NVS 权重在 GSO 256² 上评测 4–48 views，核对 Table 4（48 views 为 37.6 dB）。
   4. 在小模型上复现两条消融：optimizer 排序（Fig.7b）和"线性 LaCT 在 LM 上输给 GLA"（Fig.8b）。例如在 Objaverse 子集 128² 分辨率、6–8 个 block 上训练。
 - **难点**：
   - fast-weight lr 初始化（通过 `const_lr_bias` 设定）：NVS 用 0.01（NVS 用了 Muon，论文称因此对 lr 尺度不敏感），LM 和视频用 0.001（视频不用 Muon，附录说 Muon 在验证 loss 上无明显差异）；
-  - 按 supp Eq.18 后的分析（$r=1$ 时），只有 chunk 大于 $\tfrac{5}{3}hd$，Muon 的开销才小于计算 token 输出的开销；
+  - 按 supp Eq.18 后的分析（ $r=1$ 时），只有 chunk 大于 $\tfrac{5}{3}hd$，Muon 的开销才小于计算 token 输出的开销；
   - 反传穿过 inner update 的激活显存很大：论文从 $512\times288$ 分辨率起的高分辨率 NVS 训练都用了 chunk 内 CP（最大 chunk 超过 50 万 token、序列超过 100 万 token）；
   - 基线（GLA/DeltaNet + SWA）需要调到公平。
 
 ## 自测问题
 
-1. 由 Eq.3 推导：为什么 $b=16$ 时 TTT 层是 memory-bound？当 $h=768$ 时，$b$ 至少要多大才能超过 H100 约 290 FLOPs/byte 的峰值？
+1. 由 Eq.3 推导：为什么 $b=16$ 时 TTT 层是 memory-bound？当 $h=768$ 时， $b$ 至少要多大才能超过 H100 约 290 FLOPs/byte 的峰值？
 2. 取线性 $f_W(x)=Wx$ 和点积 loss，写出 chunk update，说明它和 linear attention 的关系。LaCT 在它之上加的三样东西各自解决什么问题（容量、幅值爆炸或衰减、尺度与数值稳定）？
 3. LM 里怎样用"先 apply 后 update 的 TTT"加上 SWA 拼出严格的逐 token causal mask？为什么要求 window ≥ chunk？如果改成先 update 后 apply，会泄漏什么？
 4. AR 视频里为什么只在干净 chunk 上 update？这对应 Fig.3 的哪种 mask？noisy chunk 重复两次后，token 利用率为什么从约 50% 升到约 67%？

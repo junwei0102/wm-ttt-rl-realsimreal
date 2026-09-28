@@ -10,7 +10,7 @@ NVIDIA 先用约 20M 小时视频（切成约 $10^8$ 个 clip）和因果 video 
 ## 问题设定
 
 - **动机**：Physical AI 的数据难以 scale。训练需要 observation-action 交错的序列，而探索性动作可能损坏系统和环境（`sections/1_introduction.tex`）。传统做法依赖物理建模加 system identification，得到的模型是低维、针对单一系统的，很难迁移（`sections/8_related.tex`）。
-- **形式化**（`sections/2_platform.tex`，Fig. 3）：$\hat x_{t+1}=\mathcal W(x_{0:t},c_t)$。$x_{0:t}$ 是 RGB 视频。$c_t$ 是 "perturbation"，可以是动作、随机扰动或一段文字描述。
+- **形式化**（`sections/2_platform.tex`，Fig. 3）： $\hat x_{t+1}=\mathcal W(x_{0:t},c_t)$。 $x_{0:t}$ 是 RGB 视频。 $c_t$ 是 "perturbation"，可以是动作、随机扰动或一段文字描述。
 - **预训练假设**：数据只有视频加 VLM 生成的 caption，**没有动作、没有奖励、没有本体状态**。扩散路线的预训练是 Text2World → Video2World（过去帧 + text → 未来帧）；自回归路线先做不带文本的纯视频预测，再加文本做 Video2World（`sections/2_platform.tex`）。动作这种模态直到 post-training 才加入（`sections/6_2_robotics.tex`："a new modality not encountered during pre-training"）。
 - **输出**：像素视频（由 tokenizer decoder 解码），不输出可供规划的紧凑状态，也不输出 reward 或 value。
 - **之前卡在哪里**：related work 把已有 world model 分成两类：多数（含 Dreamer 系、TD-MPC2）用 RNN 在 autoencoder 学到的 latent 空间里建模；较新的一类在观测空间做条件视频生成（自回归或扩散），本文属于后者。驾驶视频生成模型则在数据规模、分辨率和相机视角数上受限（`sections/8_related.tex`）。
@@ -26,7 +26,7 @@ NVIDIA 先用约 20M 小时视频（切成约 $10^8$ 个 clip）和因果 video 
   - 用 DOVER 质量分剔除最差的 15%；aesthetic 分的阈值定为 3.5。
   - 过滤文字叠加的视频，并按视频类型重新调整分布，例如去掉游戏和动画。
 - **annotate**：用 VILA-13B，每个 clip 取 8 帧生成 caption，平均 97 词。
-- **dedup**：InternVideo2 embedding 上做 k-means（$k=10{,}000$），簇内按距离去重，约去掉 30% 的数据。
+- **dedup**：InternVideo2 embedding 上做 k-means（ $k=10{,}000$），簇内按距离去重，约去掉 30% 的数据。
 - **规模**：约 $10^8$ 个 clip 用于预训练，约 $10^7$ 个用于 fine-tune。类别占比：nature dynamics 20%，手部与物体操作 16%，空间导航 16%，驾驶 11%，其余略。
 
 **2. Cosmos Tokenizer**（`sections/4_tokenizer.tex`，Fig. 9）
@@ -49,7 +49,7 @@ NVIDIA 先用约 20M 小时视频（切成约 $10^8$ 个 clip）和因果 video 
 $$\mathcal L(D_\theta,\sigma)=\mathbb E_{x_0,n}\big[\lVert D_\theta(x_0+n;\sigma)-x_0\rVert_2^2\big],\quad n\sim\mathcal N(0,\sigma^2 I)$$
 总损失在各噪声级上做**不确定性加权**（Eq. 6–8）：
 $$\mathcal L(D_\theta)=\mathbb E_\sigma\Big[\tfrac{\lambda(\sigma)}{e^{u(\sigma)}}\mathcal L(D_\theta,\sigma)+u(\sigma)\Big],\quad \lambda(\sigma)=\tfrac{\sigma^2+\sigma_{\rm data}^2}{(\sigma\sigma_{\rm data})^2},\quad \ln\sigma\sim\mathcal N(P_{\rm mean},P_{\rm std}^2)$$
-其中 $u(\sigma)$ 由一个小 MLP 学出来。下面是我自己的推导：对 $u$ 求导并令其为 0，得 $e^{u^*}=\lambda\mathcal L$，代回后每个噪声级的项变成 $1+\log(\lambda\mathcal L)$。也就是说，各噪声级的损失被自动归一化成对数尺度，训练后期不会有某个 $\sigma$ 主导梯度。论文只说用了 EDM 的 preconditioning，没有给出具体形式，以及 $P_{\rm mean}$、$P_{\rm std}$ 的数值。
+其中 $u(\sigma)$ 由一个小 MLP 学出来。下面是我自己的推导：对 $u$ 求导并令其为 0，得 $e^{u^{\ast}}=\lambda\mathcal L$，代回后每个噪声级的项变成 $1+\log(\lambda\mathcal L)$。也就是说，各噪声级的损失被自动归一化成对数尺度，训练后期不会有某个 $\sigma$ 主导梯度。论文只说用了 EDM 的 preconditioning，没有给出具体形式，以及 $P_{\rm mean}$、 $P_{\rm std}$ 的数值。
 
 - **Denoiser 结构**：
   - 基于 DiT，patch 为 $(p_t,p_h,p_w)=(1,2,2)$。
@@ -70,7 +70,7 @@ $$\mathcal L(D_\theta)=\mathbb E_\sigma\Big[\tfrac{\lambda(\sigma)}{e^{u(\sigma)
 - **Prompt upsampler**：基于 Mistral-NeMo-12B 微调，把用户的短 prompt 改写成训练时那种长 caption 风格。
 
 **4. 自回归式 WFM**（`sections/5_2_autoregressive.tex`，Fig. 14）
-- 训练目标是标准的 next-token NLL（Eq. 9）：$\mathcal L_{NLL}=\sum_i-\log P(v_i\mid v_{<i};\Theta)$，另加 z-loss $\lambda\sum_i z_i^2$，其中 $\lambda=3\times10^{-4}$。
+- 训练目标是标准的 next-token NLL（Eq. 9）： $\mathcal L_{NLL}=\sum_i-\log P(v_i\mid v_{<i};\Theta)$，另加 z-loss $\lambda\sum_i z_i^2$，其中 $\lambda=3\times10^{-4}$。
 - **结构**：Llama 式 decoder，3D RoPE 加 3D 正弦 APE，QK-Norm，从零开始训练，不具备语言能力。
 - **训练阶段**：
   - Stage 1：以 1 帧为条件预测后续 16 帧（17 帧 context）。
@@ -87,7 +87,7 @@ $$\mathcal L(D_\theta)=\mathbb E_\sigma\Big[\tfrac{\lambda(\sigma)}{e^{u(\sigma)
 **5. Post-training**（`sections/6_*.tex`，所有模型都带 "-Sample" 后缀，作者强调它们只是示例，不是产品）
 - **Camera control**：
   - 在 DL3DV-10K 上用 GLOMAP 估计相机位姿作为条件。
-  - 每个 latent 像素的 Plücker 嵌入 $r=(d,\,c\times d)\in\mathbb R^6$（Eq. 11）按通道与 latent 拼接。由于时间压缩是 8 倍，每 8 帧取第 4 帧的 Plücker 嵌入。
+  - 每个 latent 像素的 Plücker 嵌入 $r=(d,\thinspace c\times d)\in\mathbb R^6$（Eq. 11）按通道与 latent 拼接。由于时间压缩是 8 倍，每 8 帧取第 4 帧的 Plücker 嵌入。
 - **机器人**：
   - Instruction 条件：使用 Cosmos-1X 数据，约 200h 的 1X EVE 人形机器人第一视角视频，约 12,000 个 episode。
   - Action 条件：在 Bridge 上训练，动作是 7 维末端增量 $(\Delta x,\Delta y,\Delta z,\Delta\theta_r,\Delta\theta_p,\Delta\theta_y,\Delta\text{Gripper})$。7B 扩散模型把 action MLP 的输出**加到 timestep embedding 上**，5B AR 模型则通过 cross-attn 接入。推理时逐帧自回归地 rollout。
@@ -169,7 +169,7 @@ $$\mathcal L(D_\theta)=\mathbb E_\sigma\Big[\tfrac{\lambda(\sigma)}{e^{u(\sigma)
 
 ## 前置知识
 
-1. 扩散模型与 score matching：EDM 的参数化（$\sigma$、preconditioning、log-normal 噪声采样）、classifier-free guidance、latent diffusion。
+1. 扩散模型与 score matching：EDM 的参数化（ $\sigma$、preconditioning、log-normal 噪声采样）、classifier-free guidance、latent diffusion。
 2. 视觉 tokenizer：AE/VAE、VQ-VAE 与 FSQ 的区别，因果 3D 卷积。
 3. Transformer 组件：DiT 与 AdaLN、cross-attention、RoPE（3D 分解形式，NTK/YaRN 外推）、QK-Norm。
 4. 自回归生成：next-token NLL、KV cache、speculative decoding（Medusa）。

@@ -12,7 +12,7 @@
 
 - **目标**：为**一个特定部署场景**（某个厨房、某个书架）得到对物体位姿变化、视觉干扰物（distractors）、物理扰动（disturbances）都鲁棒的 visuomotor 操作策略，且人力成本低。
 - **输入/输出**：真实世界观测 $o$ 是单个标定深度相机的 3D 点云（+ 机器人末端状态），动作 $a$ 是离散化的末端 delta pose：14 个动作 = 6 个平移（每轴 $\pm0.03$ m）+ 6 个旋转（每轴 $\pm0.2$ rad）+ 2 个开/合夹爪动作（`appendix.tex` Task details）。
-- **假设**：只有少量真实示范（$\sim$15 条，`method_as.tex` System Overview）；任务可在刚体/铰接刚体仿真中表达；有一个人工写的**稀疏成功判据**（如 `drawer_joint > 0.1 && gripper_open`）同时用作成功筛选和 RL 奖励；物理参数**不做 system identification**，所有物体统一默认值（摩擦 0.5、关节摩擦 0.1、质量 0.41 kg，`appendix.tex` Simulation details）。
+- **假设**：只有少量真实示范（ $\sim$ 15 条，`method_as.tex` System Overview）；任务可在刚体/铰接刚体仿真中表达；有一个人工写的**稀疏成功判据**（如 `drawer_joint > 0.1 && gripper_open`）同时用作成功筛选和 RL 奖励；物理参数**不做 system identification**，所有物体统一默认值（摩擦 0.5、关节摩擦 0.1、质量 0.41 kg，`appendix.tex` Simulation details）。
 - **之前卡在哪**：(1) 纯 imitation learning（BC）少量示范下对扰动很脆，且学不到示范里没出现的恢复行为（重抓、纠偏）；(2) 真实世界 RL 慢、不安全、需要 reset 和奖励设计；(3) sim-to-real 需要手工搭几何/视觉/运动学都逼真的场景，成本高；而在大量多样化合成资产上训 generalist 又难又不一定对某个具体场景好；(4) 真实示范没有 Lagrangian state（物体位姿），不能直接拿来引导 state-based RL。
 
 ## 核心方法
@@ -20,21 +20,21 @@
 四步流水线（`method_as.tex` Sec. III-A，Fig. 1）：
 
 **① Real-to-sim 场景构建**（`method_as.tex` Sec. III-B，Fig. 2）。用 Polycam（大场景，iPhone LiDAR）、AR Code（360° 单物体）或 NeRFStudio `nerfacto` + Poisson 表面重建（细薄结构如碗架）得到整体网格 $\mathcal G$；在 GUI 里切分物体、添加关节，得到
-$$\mathcal S=\{\{\mathcal G_i\}_{i=1}^{M},\ \mathcal K,\ \mathcal P\}$$
+$$\mathcal S=\lbrace\lbrace\mathcal G_i\rbrace_{i=1}^{M},\ \mathcal K,\ \mathcal P\rbrace$$
 （几何、运动学、物理参数），导出为 USD/URDF 进 Isaac Sim。碰撞体默认 convex decomposition（64 hull vertices、32 convex hulls），碗架用 SDF（分辨率 256）。物理参数刻意不辨识：dynamics gap 交给后面"靠近真实示范"的约束去补偿。
 
 **② Inverse distillation：real→sim 的示范迁移**（`method_as.tex` Sec. III-C1，Fig. 3）。
-1. 在 $\mathcal D_{\text{real}}=\{(o_1^i,a_1^i),\dots,(o_H^i,a_H^i)\}_{i=1}^N$ 上用 BC 训点云策略 $\pi_{\text{real}}(a|o)$；
-2. 把 $\pi_{\text{real}}$ 放进孪生里，用**仿真渲染的点云**跑 rollout，只保留满足成功判据的轨迹，得到 $\mathcal D_{\text{sim}}=\{(o_t^i,a_t^i,s_t^i)\}$，其中 $s$ 是仿真直接给出的 privileged state（所有物体位姿 + 关节状态 + 机器人状态）。
+1. 在 $\mathcal D_{\text{real}}=\lbrace(o_1^i,a_1^i),\dots,(o_H^i,a_H^i)\rbrace_{i=1}^N$ 上用 BC 训点云策略 $\pi_{\text{real}}(a|o)$；
+2. 把 $\pi_{\text{real}}$ 放进孪生里，用**仿真渲染的点云**跑 rollout，只保留满足成功判据的轨迹，得到 $\mathcal D_{\text{sim}}=\lbrace(o_t^i,a_t^i,s_t^i)\rbrace$，其中 $s$ 是仿真直接给出的 privileged state（所有物体位姿 + 关节状态 + 机器人状态）。
 关键点：真实世界拿不到 $s$，但仿真里 $o\leftrightarrow s$ 的对应是已知的，所以"让感知策略在仿真里演一遍"就把示范"升维"成带状态的示范。叫 *inverse* 大概是因为方向与常规 teacher-student 相反：常规是 state 策略 → 感知策略，这里先是感知策略 → state 示范（论文未解释命名，此为笔者理解）。论文实际收集 15 条 $\mathcal D_{\text{sim}}$ 示范（Fig. 3）。
 
 **③ 仿真中的 demo-augmented RL fine-tuning**（`method_as.tex` Eq. 1）。state-based 策略 $\pi_\theta(a|s)$（MLP 256-256，输出 14 维 Categorical；value 与 actor 共享第一层），在 PPO 目标上加 BC 项：
-$$\max_{\theta,\phi}\ \alpha\!\!\sum_{(s_t,a_t,r_t)\in\tau_{\pi_{\theta_{\text{old}}}}}\!\!\min\!\Big(\rho_t\hat A_t,\ \mathrm{clip}(\rho_t,1-\epsilon,1+\epsilon)\hat A_t\Big)+\beta\!\!\sum_{(s_t,V_t^{\text{targ}})\in\tau_{\pi_{\theta_{\text{old}}}}}\!\!\big(V_\phi(s_t)-V_t^{\text{targ}}\big)^2+\gamma\!\!\sum_{(s_i,a_i)\in\mathcal D_{\text{sim}}}\!\!\frac{\pi_\theta(a_i|s_i)}{\sum_{a_c}\pi_\theta(a_c|s_i)}$$
-其中 $\rho_t=\pi_\theta(a_t|s_t)/\pi_{\theta_{\text{old}}}(a_t|s_t)$。第一项是 PPO clipped surrogate，第二项是 value 回归（按 PPO 惯例应被最小化，式中写在 max 里的 $+\beta$ 应理解为带负号），第三项是在 $\mathcal D_{\text{sim}}$ 上的 BC（对 14 类离散动作就是分类似然）。注意式中 $\alpha,\beta,\gamma$ 都是各项权重，$\gamma$ 不是折扣因子。奖励只有稀疏成功信号；训练时随机化机器人/物体/目标初始位姿（各任务范围见 `appendix.tex` Table IV）。BC 项有两个作用：**解决稀疏奖励下的探索**，以及**把策略拉向物理上合理、能迁移回真实的解**（补偿默认物理参数带来的误差）。超参（`appendix.tex` Table VI）：基于 Stable Baselines 3，n_steps = episode length，PPO batch size 31257，BC batch size 32，BC weight 0.1，gradient clipping 5。
+$$\max_{\theta,\phi}\ \alpha\negthinspace\negthinspace\sum_{(s_t,a_t,r_t)\in\tau_{\pi_{\theta_{\text{old}}}}}\negthinspace\negthinspace\min\negthinspace\Big(\rho_t\hat A_t,\ \mathrm{clip}(\rho_t,1-\epsilon,1+\epsilon)\hat A_t\Big)+\beta\negthinspace\negthinspace\sum_{(s_t,V_t^{\text{targ}})\in\tau_{\pi_{\theta_{\text{old}}}}}\negthinspace\negthinspace\big(V_\phi(s_t)-V_t^{\text{targ}}\big)^2+\gamma\negthinspace\negthinspace\sum_{(s_i,a_i)\in\mathcal D_{\text{sim}}}\negthinspace\negthinspace\frac{\pi_\theta(a_i|s_i)}{\sum_{a_c}\pi_\theta(a_c|s_i)}$$
+其中 $\rho_t=\pi_\theta(a_t|s_t)/\pi_{\theta_{\text{old}}}(a_t|s_t)$。第一项是 PPO clipped surrogate，第二项是 value 回归（按 PPO 惯例应被最小化，式中写在 max 里的 $+\beta$ 应理解为带负号），第三项是在 $\mathcal D_{\text{sim}}$ 上的 BC（对 14 类离散动作就是分类似然）。注意式中 $\alpha,\beta,\gamma$ 都是各项权重， $\gamma$ 不是折扣因子。奖励只有稀疏成功信号；训练时随机化机器人/物体/目标初始位姿（各任务范围见 `appendix.tex` Table IV）。BC 项有两个作用：**解决稀疏奖励下的探索**，以及**把策略拉向物理上合理、能迁移回真实的解**（补偿默认物理参数带来的误差）。超参（`appendix.tex` Table VI）：基于 Stable Baselines 3，n_steps = episode length，PPO batch size 31257，BC batch size 32，BC weight 0.1，gradient clipping 5。
 
-**④ Teacher-student 蒸馏 + 真实数据 co-training**（`method_as.tex` Eq. 2）。teacher 是 $\pi^*_{\text{sim}}(a|s)$，student 是点云策略：
-$$\max_\theta\ \alpha\!\!\sum_{(s_i,o_i,a_i)\sim\tau_{\pi_\theta}}\!\!\frac{\pi_\theta(\pi_{\text{teacher}}(s_i)\,|\,o_i)}{\sum_{a_c}\pi_\theta(a_c|o_i)}+\beta\!\!\sum_{(o_i,a_i)\in\mathcal D_{\text{real}}}\!\!\frac{\pi_\theta(a_i|o_i)}{\sum_{a_c}\pi_\theta(a_c|o_i)}$$
-第一项是仿真中的 DAgger（student 自己 rollout，teacher 用 privileged state 重标动作），第二项在原始真实示范上 co-train，用来缩小点云视觉分布差异和 dynamics 差异。实际做法分两步（`appendix.tex` Teacher-student distillation）：先 BC，数据等概率（各 1/4）混合 15000 条"全可见"点云轨迹（直接从 mesh 采点）、5000 条真实相机视角渲染轨迹、带 distractor 的轨迹（附录文字写 2000 条，Table VIII 写 1000 条）、15 条真实轨迹；再做一轮 DAgger，DAgger 数据 / 仿真 distractor 数据 / 真实数据各 1/3。点云增强：6000 点（其中 3000 点从机械臂 mesh 采样）、dropout 比例 [0.1,0.3]、jitter $\mathcal N(0,0.01)$ 等（Table VII）。编码器是 Convolutional Occupancy Networks 的体素编码器（local PointNet + 3D U-Net，$32^3$ 网格）→ max/avg pooling → 128 维，与 9 维机器人状态拼接 → MLP 256-256；AdamW，lr 3e-4（Table VIII）。
+**④ Teacher-student 蒸馏 + 真实数据 co-training**（`method_as.tex` Eq. 2）。teacher 是 $\pi^{\ast}_ {\text{sim}}(a|s)$，student 是点云策略：
+$$\max_\theta\ \alpha\negthinspace\negthinspace\sum_{(s_i,o_i,a_i)\sim\tau_{\pi_\theta}}\negthinspace\negthinspace\frac{\pi_\theta(\pi_{\text{teacher}}(s_i)\thinspace|\thinspace o_i)}{\sum_{a_c}\pi_\theta(a_c|o_i)}+\beta\negthinspace\negthinspace\sum_{(o_i,a_i)\in\mathcal D_{\text{real}}}\negthinspace\negthinspace\frac{\pi_\theta(a_i|o_i)}{\sum_{a_c}\pi_\theta(a_c|o_i)}$$
+第一项是仿真中的 DAgger（student 自己 rollout，teacher 用 privileged state 重标动作），第二项在原始真实示范上 co-train，用来缩小点云视觉分布差异和 dynamics 差异。实际做法分两步（`appendix.tex` Teacher-student distillation）：先 BC，数据等概率（各 1/4）混合 15000 条"全可见"点云轨迹（直接从 mesh 采点）、5000 条真实相机视角渲染轨迹、带 distractor 的轨迹（附录文字写 2000 条，Table VIII 写 1000 条）、15 条真实轨迹；再做一轮 DAgger，DAgger 数据 / 仿真 distractor 数据 / 真实数据各 1/3。点云增强：6000 点（其中 3000 点从机械臂 mesh 采样）、dropout 比例 [0.1,0.3]、jitter $\mathcal N(0,0.01)$ 等（Table VII）。编码器是 Convolutional Occupancy Networks 的体素编码器（local PointNet + 3D U-Net， $32^3$ 网格）→ max/avg pooling → 128 维，与 9 维机器人状态拼接 → MLP 256-256；AdamW，lr 3e-4（Table VIII）。
 
 **推理**：真实世界只运行最终的点云 student 策略，闭环执行；部署时不再更新参数。
 

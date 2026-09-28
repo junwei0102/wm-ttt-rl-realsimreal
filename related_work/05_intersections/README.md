@@ -145,7 +145,7 @@
 | RWM、SimDist 用 learned model 修动力学 | [ASAP](../03_real2sim2real/asap/notes.md) |
 | Ctrl-World 的评估、World-Gymnast 的 baseline | [SIMPLER](../03_real2sim2real/simpler/notes.md) |
 
-需要记住的一点是：learned simulator 并没有消除 gap，只是把 sim-to-real gap 换成了 world model 与真实之间的误差。Ctrl-World 的成功率回归线（$y=0.81x-0.11$）就是这种误差的一次定量测量。
+需要记住的一点是：learned simulator 并没有消除 gap，只是把 sim-to-real gap 换成了 world model 与真实之间的误差。Ctrl-World 的成功率回归线（ $y=0.81x-0.11$）就是这种误差的一次定量测量。
 
 **02 TTT：提供部署期更新参数的机制，但本线里的 "TTT" 有三种不同含义。**
 
@@ -212,7 +212,7 @@
   - [ ] $V^{\pi^e}$ 与行为策略价值的区别
   - [ ] offline-to-online RL 基线（RLPD、[IQL](../04_rl/iql/notes.md)）在 finetune 时为什么会 collapse
 - **读完应能回答**
-  1. 为什么 teacher forcing 是 $N=1$ 的特例？RWM 的 Fig. S8 中，"$M=1,N=32$ 时 $e=1.50$"和"$M=32,N=1$ 时 $e=3.99$"分别说明了 history 和 forecast 的什么作用？
+  1. 为什么 teacher forcing 是 $N=1$ 的特例？RWM 的 Fig. S8 中，" $M=1,N=32$ 时 $e=1.50$"和" $M=32,N=1$ 时 $e=3.99$"分别说明了 history 和 forecast 的什么作用？
   2. RWM 的真机鲁棒性可能来自哪里？为什么说它严格上是"把物理仿真器蒸馏成 GRU"？
   3. SimDist 为什么可以冻结 encoder、reward、value，只 finetune dynamics？冻结 encoder 起了哪两个作用？
   4. SimDist 的 Eq.3 与 PAD 的部署期更新，在监督信号、更新对象和更新频率上有哪些相同、哪些不同？
@@ -222,7 +222,7 @@
 
 - **读**：[UniSim](./unisim/notes.md) → [Ctrl-World](./ctrl-world/notes.md)
 - **前置 checklist**
-  - [ ] DDPM（$\epsilon$ / $x_0$-prediction）与 classifier-free guidance
+  - [ ] DDPM（ $\epsilon$ / $x_0$-prediction）与 classifier-free guidance
   - [ ] latent video diffusion：VAE latent、spatial / temporal 分解注意力、cross-attention 条件注入（SVD、Imagen Video）
   - [ ] VLA 与 action chunking（π0 / π0.5、OpenVLA），inverse dynamics model（UniPi）
   - [ ] 视频生成指标 PSNR / SSIM / LPIPS / FID / FVD，以及它们衡量的是什么
@@ -267,7 +267,7 @@
 |---|---|---|---|---|---|
 | PAD | 没有 world model，只有一个 IDM 辅助 head | CNN 特征 | — | 训练期用环境 reward；部署期没有 reward | — |
 | DayDreamer | RSSM（DreamerV2） | 离散 latent（32×32），有重建 decoder | 真机在线采集，从零开始 | 手工 reward，由 WM 的 reward head 学习预测 | imagination horizon 15–16 步，加 λ-return bootstrap |
-| RWM | GRU + Gaussian 输出头 | 低维本体观测，外加 privileged info（接触、termination） | Isaac Lab 仿真：多动力学预训练 + 单环境微调 | 手写公式，直接在预测量上计算 | AR 训练（$M=32,N=8$），每次迭代 rollout 100 步 |
+| RWM | GRU + Gaussian 输出头 | 低维本体观测，外加 privileged info（接触、termination） | Isaac Lab 仿真：多动力学预训练 + 单环境微调 | 手写公式，直接在预测量上计算 | AR 训练（ $M=32,N=8$），每次迭代 rollout 100 步 |
 | SimDist | TD-MPC 式 latent WM，chunked transformer dynamics | latent，没有重建项 | 仿真 privileged expert、中间 checkpoint、动作扰动（四足约 100M 数据点） | 仿真 privileged reward 回归，加 $V^e$ 蒸馏；真机上冻结 | 短窗口（0.5–1 s）加 terminal value；一次前向输出全部 $T$ 步 |
 | UniSim | 级联 3D U-Net 视频扩散（5.6B） | 像素（24×40，超分到 192×320） | 互联网图文、人类视频、机器人数据、全景扫描、仿真渲染 | 另学 steps-to-completion，由 Stage 1 冻结副本提供 | 4 帧历史自回归，没有专门机制 |
 | Ctrl-World | SVD 改造的 latent 视频扩散（1.5B） | 多视角像素（在 VAE latent 中扩散） | DROID（约 76k 成功 / 19k 失败） | 人工判定 | 7 帧稀疏历史 + 位姿（pose-conditioned memory）；历史帧加噪 |
@@ -278,7 +278,7 @@
 
 | 方法 | 策略 / 优化方式 | 部署期是否更新、更新什么 | 需要的真实数据 | 真机证据 | 算力（论文数字） |
 |---|---|---|---|---|---|
-| PAD | SAC（DMControl、机器人）或 A2C（CRLMaze），与 IDM 联合训练 | 是：每步一次梯度，更新 $\pi_e$（和 $\pi_s$），$\pi_a$ 冻结，不用 reward | 训练在仿真中完成；部署期只用自身的 transition | Kinova Gen3，每个设置 25 次，Push cloth 从 64% 升到 88% | 未报告；每个任务训练 500k 步 |
+| PAD | SAC（DMControl、机器人）或 A2C（CRLMaze），与 IDM 联合训练 | 是：每步一次梯度，更新 $\pi_e$（和 $\pi_s$）， $\pi_a$ 冻结，不用 reward | 训练在仿真中完成；部署期只用自身的 transition | Kinova Gen3，每个设置 25 次，Push cloth 从 64% 升到 88% | 未报告；每个任务训练 500k 步 |
 | DayDreamer | imagination actor-critic（连续动作用 reparameterization，离散动作用 Reinforce） | 训练和部署不分开，WM 与策略持续更新（需要 reward） | 全部来自真机（1–10 h） | 4 台机器人，单次运行 | 未报告，只说 single GPU |
 | RWM | MBPO-PPO，4096 个 imagination 环境 | 否 | 硬件实验中不用（WM 只用仿真数据） | ANYmal D、G1 zero-shot；tracking reward 0.90±0.04，PPO 为 0.90±0.03 | 单卡 RTX 4090；RWM 约 1 h，MBPO-PPO 5 min |
 | SimDist | MPPI 规划（用 policy prior warm-start），没有策略梯度 | 是：分批迭代 finetune $f_\theta$，其余冻结，不需要真实 reward | 真机 rollout 约 30 分钟（四足 32.1 / 35.7 min） | UR5e 2 个任务、Go2 2 个任务；四足 Slippery 上 zero-shot 0/5，适应后 4–5/5 | 四足：数据生成约 7 h + 预训练约 28 h（单卡 RTX 4500 Ada） |
@@ -417,11 +417,11 @@
 
 ### 10.2 Robotic World Model：learned simulator 里的 PPO（难度 medium）
 
-- **理由**：在本线里，要跑通"训练 learned simulator → 在其中跑 PPO"的完整闭环，它的成本最低：单张 4090、约 1 小时。$M/N$ 消融能直接量化 compounding error，这是之后任何"在 WM 里做 RL"研究都要先做的诊断。
+- **理由**：在本线里，要跑通"训练 learned simulator → 在其中跑 PPO"的完整闭环，它的成本最低：单张 4090、约 1 小时。 $M/N$ 消融能直接量化 compounding error，这是之后任何"在 WM 里做 RL"研究都要先做的诊断。
 - **算力**：单卡 RTX 4090。RWM 约 1 h（Table 1 写的是 50 min），MBPO-PPO 5 min。需要 Linux 或 Windows 加 NVIDIA RTX GPU，Isaac Sim 不支持 macOS。
 - **最小实验**：
   1. 在 Isaac Lab 里用现成的 ANYmal-D flat 速度策略采集轨迹。
-  2. 固定 $M=32$，比较 $N\in\{1,2,8\}$，评估从第 32 步起自回归约 170 步的误差，看能否复现 Fig. S8 的趋势（3.99 → 1.91 → 0.47）。三个模型大约 3 小时。
+  2. 固定 $M=32$，比较 $N\in\lbrace1,2,8\rbrace$，评估从第 32 步起自回归约 170 步的误差，看能否复现 Fig. S8 的趋势（3.99 → 1.91 → 0.47）。三个模型大约 3 小时。
   3. 跑官方 pretrain → MBPO-PPO，把 ground-truth reward 曲线与 Fig. 5 左图对照。
   4. 顺带补一个论文缺的诊断：记录"预测 reward − 真实 reward"随训练的变化，作为 model exploitation 的量化指标。
 - **没有 GPU 时的退路**：在 MuJoCo 低维 locomotion 环境上自己写 GRU 加 AR 损失，只验证 teacher forcing 与 AR 的定性差异。
@@ -444,7 +444,7 @@
 | UniSim | 没有代码，训练需要 512 TPU-v3 × 20 天 |
 | DayDreamer | 需要真机硬件；TF2 的旧依赖难装；异步训练的结果依赖 GPU 吞吐 |
 | Ctrl-World | 只做推理可以（单卡 A100/H100），但排名对齐的实验需要 DROID 真机 |
-| WMPO | 用官方 checkpoint 只跑 Coffee_D0、$P=128$（对照 43.8 → 61.7）是可行的第 4 个选择，但论文用了 32×H100 |
+| WMPO | 用官方 checkpoint 只跑 Coffee_D0、 $P=128$（对照 43.8 → 61.7）是可行的第 4 个选择，但论文用了 32×H100 |
 | World-Gymnast | 需要 4×H200 和 GPT-4o 调用费用 |
 
 WMPO 和 World-Gymnast 适合在前三个跑通、多卡资源到位之后，专门去补"WM 内成功率与真实成功率差距"这个诊断。

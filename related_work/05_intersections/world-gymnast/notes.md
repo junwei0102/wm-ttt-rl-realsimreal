@@ -15,21 +15,21 @@
   model-based 版本把 $T$ 换成视频 world model $\hat T(\cdot\mid\mathbf o,\mathbf a)$，输入历史帧序列和未来动作序列；把 $R$ 换成读完整段帧序列的 VLM $\hat R$：
   $$\hat\rho(\pi)=\mathbb E\big[\hat R([o_0,\dots,o_H],g)\mid s_0,g\sim G,\ \mathbf a\sim\pi(\mathbf o,g),\ \mathbf o'\sim\hat T(\mathbf o,\mathbf a),\ \mathbf o=\mathbf o'\big]\quad\text{(Eq.2)}$$
 - **输入 / 输出**：训练一个任务只需要 $(o_0, g)$，输出是微调后的 VLA。不需要真实 reward、物体 3D 资产或物理参数。
-- **假设**：$o_0$ 要"足够接近" world model 的训练分布（WorldGym 在 Open X-Embodiment 上预训练）；VLM 能从生成的视频里判断任务成败；基座 policy 已有一定成功率（否则 GRPO 组内 reward 全是 0，没有方差）。
+- **假设**： $o_0$ 要"足够接近" world model 的训练分布（WorldGym 在 Open X-Embodiment 上预训练）；VLM 能从生成的视频里判断任务成败；基座 policy 已有一定成功率（否则 GRPO 组内 reward 全是 0，没有方差）。
 
 ## 核心方法
 
 **1. 三个组件（Figure 1）**
 - **Policy**：OpenVLA-OFT，从 Open X-Embodiment 预训练的 OpenVLA checkpoint 出发，在 BridgeData V2 上 SFT 20k 步（Sec 4.2）。参照 SimpleVLA-RL 改了两处：关掉 proprioception 和第二路相机；动作头从默认的 L1 回归头换成 LLaMA-2 的 LM head（离散 action token），这样才有 RL 需要的 $\pi_\theta(a\mid o,g)$ 概率（Sec 4.1）。动作是 7 维（6 维末端位姿 + 二值夹爪），action chunk 长度为 5。
-- **World model $\hat T$**：WorldGym，609M 参数（Appendix Table `tab:hyper`，即 PDF 的 Table 4；Sec 4.1 正文写作 "600M parameter variant"）。先用 Stable Diffusion 3 的 VAE 把 $256\times256$ RGB 帧编码到 latent（16 通道），再用 16 层 DiT（hidden 1024，16 heads，patch 2）逐帧自回归做 diffusion 生成：$v$-prediction，sigmoid noise schedule，采样 10 步。动作是 10 维，这里只用前 7 维。上下文固定为 20 帧，rollout 更长时用最近 20 帧的滑窗。每一步对"有动作条件 / 空动作"各跑一次 DiT，再做 classifier-free guidance 和 DDIM 更新（Algorithm 1）。照此推算，每生成 1 帧要做 10×2=20 次 DiT 前向。作者加了 temporal KV cache，在"20 条轨迹并行、40 帧"的设置下 rollout 时间缩短到约 1/10（Appendix A.1）。
+- **World model $\hat T$**：WorldGym，609M 参数（Appendix Table `tab:hyper`，即 PDF 的 Table 4；Sec 4.1 正文写作 "600M parameter variant"）。先用 Stable Diffusion 3 的 VAE 把 $256\times256$ RGB 帧编码到 latent（16 通道），再用 16 层 DiT（hidden 1024，16 heads，patch 2）逐帧自回归做 diffusion 生成： $v$-prediction，sigmoid noise schedule，采样 10 步。动作是 10 维，这里只用前 7 维。上下文固定为 20 帧，rollout 更长时用最近 20 帧的滑窗。每一步对"有动作条件 / 空动作"各跑一次 DiT，再做 classifier-free guidance 和 DDIM 更新（Algorithm 1）。照此推算，每生成 1 帧要做 10×2=20 次 DiT 前向。作者加了 temporal KV cache，在"20 条轨迹并行、40 帧"的设置下 rollout 时间缩短到约 1/10（Appendix A.1）。
 - **Reward $\hat R$**：GPT-4o。rollout 视频按 stride 3 做时间下采样后送进去，prompt 要求写 2–3 句理由，然后输出 `Final Score: 0/1`，并提示"视频由视频预测模型生成，可能有伪影"（Appendix A.3）。评测时每条 rollout 取 5 次独立 VLM 判断做 majority vote（Appendix D.1）；Appendix A.3 另写了"每次 policy 评测在 world model 里做 5 次独立 rollout"，两处的"5"是否指同一件事，论文没交代清楚。训练时是否也投票，论文没写。
 
 **2. Model-based GRPO**（`source/method.tex` Eq.4–6）
-对每个 $(g,o_0)$，在 $\hat T$ 里 rollout $K$ 条轨迹：$a_{t,k}\sim\pi_\theta(\cdot\mid o_{t,k},g)$，$o_{t+1,k}\sim\hat T(o_{t,k},a_{t,k})$，一直到 $H$。然后 $r_k=\hat R(\tau_k,g)\in\{0,1\}$，组内归一化：
+对每个 $(g,o_0)$，在 $\hat T$ 里 rollout $K$ 条轨迹： $a_{t,k}\sim\pi_\theta(\cdot\mid o_{t,k},g)$， $o_{t+1,k}\sim\hat T(o_{t,k},a_{t,k})$，一直到 $H$。然后 $r_k=\hat R(\tau_k,g)\in\lbrace0,1\rbrace$，组内归一化：
 $$\mu=\tfrac1K\sum_k r_k,\quad \sigma=\sqrt{\tfrac{1}{K-1}\sum_k (r_k-\mu)^2},\quad \hat A_k=\frac{r_k-\mu}{\sigma+\epsilon}\quad\text{(Eq.4, 5)}$$
-轨迹级 advantage 广播到每一步（$\hat A_{t,k}=\hat A_k$），再代入非对称 clip 的 PPO 目标：
+轨迹级 advantage 广播到每一步（ $\hat A_{t,k}=\hat A_k$），再代入非对称 clip 的 PPO 目标：
 $$\mathcal J(\theta)=\mathbb E_{g,o_0\sim\mathcal D}\Big[\tfrac1K\sum_{k}\tfrac1H\sum_{t=0}^{H-1}\min\big(r_{t,k}(\theta)\hat A_k,\ \mathrm{clip}(r_{t,k}(\theta),1-\epsilon_{low},1+\epsilon_{high})\hat A_k\big)\Big],\quad r_{t,k}=\frac{\pi_\theta(a_{t,k}\mid o_{t,k},g)}{\pi_{\theta_{old}}(a_{t,k}\mid o_{t,k},g)}\quad\text{(Eq.6)}$$
-沿用 SimpleVLA-RL 的四个技巧（Sec 3.1）：去掉 KL 项；dynamic sampling（丢掉组内 reward 无方差的组）；clip-higher（$\epsilon_{high}=0.28,\epsilon_{low}=0.2$）；rollout 时用高温采样（temperature 1.6）。这里的 group 是"同一 $(g,o_0)$ 下 $K$ 条想象轨迹"，baseline 由组内均值给出，所以不需要 critic。代价是 reward 在一组内全 0 或全 1 时就没有梯度。
+沿用 SimpleVLA-RL 的四个技巧（Sec 3.1）：去掉 KL 项；dynamic sampling（丢掉组内 reward 无方差的组）；clip-higher（ $\epsilon_{high}=0.28,\epsilon_{low}=0.2$）；rollout 时用高温采样（temperature 1.6）。这里的 group 是"同一 $(g,o_0)$ 下 $K$ 条想象轨迹"，baseline 由组内均值给出，所以不需要 critic。代价是 reward 在一组内全 0 或全 1 时就没有梯度。
 
 **3. 利用"只需一帧"衍生的训练方式**（Sec 3.2–3.4）
 - **Training from any frame**：任何接近 world model 分布的帧都能当 $o_0$，训练数据不再受专家示范数量限制。
@@ -102,7 +102,7 @@ $$\mathcal J(\theta)=\mathbb E_{g,o_0\sim\mathcal D}\Big[\tfrac1K\sum_{k}\tfrac1
 
 - **代码**：官方 repo https://github.com/world-gymnast/world-gymnast 存在（2026-09-27 访问）。README 给了 `examples/run_openvla_oft_rl_worldgym.sh`；repo 是 SimpleVLA-RL 的 fork，带 `verl` 目录（README 本身没写"基于 veRL"），致谢 WorldGym、SimpleVLA-RL、OpenVLA-OFT。训练数据格式是"PNG 初始帧 + JSON 指令/判分标准"。WorldGym 和 SFT policy 的 checkpoint 是否一并发布，repo 页面上我没有确认到，需要自己检查。
 - **算力**（论文原文）：RL 用 4×H200（140GB）做 7B 全参数微调，耗时 1–2 天（Sec 4.1，Table `tab:rl_hyper`）。world model 训练用 2×A100 80GB、580k 步、batch 16、lr 8e-5（Table `tab:hyper`，标题是"World-Gymnast 视频 world model 的训练超参"，没明说这就是 Open X-Embodiment 上的预训练）。Dyna 的 world model 微调共 120k 步，硬件未写。另外还有 GPT-4o API 的调用开销，论文没报。
-- **超参**：lr $5\times10^{-6}$，group 8，batch 20，chunk 5，最长 40 步，$\epsilon_{high}/\epsilon_{low}=0.28/0.2$，temperature 1.6，entropy coef 0，grad clip 1.0，AdamW。
+- **超参**：lr $5\times10^{-6}$，group 8，batch 20，chunk 5，最长 40 步， $\epsilon_{high}/\epsilon_{low}=0.28/0.2$，temperature 1.6，entropy coef 0，grad clip 1.0，AdamW。
 - **数据 / 环境**：OpenVLA 评测任务集的初始帧（17 个任务），BridgeData V2（用于 SFT），Open X-Embodiment（world model 预训练）。真机部分依赖 AutoEval 平台，论文称其对公众开放。
 - **最小可复现实验**：直接用官方 WorldGym checkpoint 和 Bridge SFT 后的 OpenVLA-OFT，只挑 2–3 个 OpenVLA 任务（例如 put eggplant into pot），group 8，horizon 40，GPT-4o 判分，训几百步。然后在 held-out 初始帧上用"5 次 VLM 判断 + 多数票"评测，看 SFT → RL 的成功率是否上升，参照 Table 3 里 58 → 74 的量级。建议同时做一个论文没做的校验：人工标注约 100 条生成 rollout，测 GPT-4o 判分的 precision/recall，并看训练后期 VLM 判定为成功、人眼却判为失败的比例有没有升高（reward hacking 信号）。如果能用 AutoEval，再做一次 *close the drawer* 的单帧 TTT，复核 62 → 100。
 - **预计难点**：world model rollout 很慢，每帧要 20 次 DiT 前向，KV cache 必须开；7B policy 和 600M world model 要同时占显存；GPT-4o 的延迟、费用和非确定性；基座成功率过低时组内无方差，会被 dynamic sampling 大量丢弃；自己场景的帧如果偏离 Open X-Embodiment 分布，world model 生成会失真（作者自承的局限）。

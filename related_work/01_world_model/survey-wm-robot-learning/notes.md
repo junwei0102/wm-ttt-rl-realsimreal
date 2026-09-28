@@ -12,10 +12,10 @@
 ## 问题设定
 
 - **动机**（Sec.1）：纯 reactive 的 VLA（RT-2、OpenVLA、π0）在长时程推理、temporal credit assignment 和 compounding error 上都吃力。作者认为原因之一是模型里没有显式结构去预测"世界在我的动作下会怎么变"。按作者的说法，actionable 的 world model 要有三种能力：**foresight**（执行前预判后果）、**imagination-driven planning**（用想象出的 rollout 比较候选动作）、**data amplification**（合成额外的示范 / 交互轨迹）。
-- **World model 的定义**（`source/sec/2_Pre-knowledge.tex`，Eq.1）：$p(x_{t+1:t+H}\mid x_t,a_{t:t+H-1},l)$。这里把 **action 的含义放宽了**：低层电机指令 $a$ 算 action，高层语言 / 任务指令 $l$ 也算 action（语言指定"要实现哪种未来"）。$x_t$ 可以是像素、latent、结构化物理状态，也可以是符号谓词。
+- **World model 的定义**（`source/sec/2_Pre-knowledge.tex`，Eq.1）： $p(x_{t+1:t+H}\mid x_t,a_{t:t+H-1},l)$。这里把 **action 的含义放宽了**：低层电机指令 $a$ 算 action，高层语言 / 任务指令 $l$ 也算 action（语言指定"要实现哪种未来"）。 $x_t$ 可以是像素、latent、结构化物理状态，也可以是符号谓词。
 - **功能性判据**：只能生成"看着合理"的未来视频，不算 world model。它必须刻画机器人相关的动作会怎样改变未来，并且能服务于 control / planning / simulation / evaluation / data generation。最重要的子类是 action-conditioned world model。
 - **实际讨论的对象**是视觉 world model，也就是 video generation model $p(v_{t+1:t+H}\mid o_t,a_{t:t+H-1},l)$（Eq.2）。作者专门声明：聚焦视频不代表认为像素是最优的抽象。
-- **Policy 背景**（Sec.2.2，Eq.3）：$p(a_{t+1:t+k}\mid o_t,l)$，其中 $k$ 是 action chunk 长度。分两类：visuomotor policy（Diffusion Policy 等）和 VLA（离散 token 的 RT-2 / OpenVLA / FAST，连续动作的 π 系列 flow matching）。**这部分明确只讲 imitation learning 范式。**
+- **Policy 背景**（Sec.2.2，Eq.3）： $p(a_{t+1:t+k}\mid o_t,l)$，其中 $k$ 是 action chunk 长度。分两类：visuomotor policy（Diffusion Policy 等）和 VLA（离散 token 的 RT-2 / OpenVLA / FAST，连续动作的 π 系列 flow matching）。**这部分明确只讲 imitation learning 范式。**
 - **已有文献的问题**：按架构、功能角色和应用域都很碎片化。作者说自己比先前的综述（`worldmodel-survey`，arXiv 2511.02097）分得更细，也更以 policy 为中心。
 
 ## 核心方法
@@ -28,17 +28,17 @@ $$p(o_{t+1:t+k},a_{t+1:t+k}\mid o_t,l)$$
 
 | 查询 | 形式 |
 |---|---|
-| Policy | $p(a_{t+1:t+k}\mid o_t,l)=\int p(o,a\mid o_t,l)\,d_o$ |
-| Passive WM（视频生成） | $p(o_{t+1:t+k}\mid o_t,l)=\int p(o,a\mid o_t,l)\,d_a$ |
+| Policy | $p(a_{t+1:t+k}\mid o_t,l)=\int p(o,a\mid o_t,l)\thinspace d_o$ |
+| Passive WM（视频生成） | $p(o_{t+1:t+k}\mid o_t,l)=\int p(o,a\mid o_t,l)\thinspace d_a$ |
 | Controllable WM | $p(o_{t+1:t+k}\mid o_t,a_{t+1:t+k})$ |
 | Inverse Dynamics Model | $p(a_{t+1:t+k}\mid o_{t:t+k})$ |
 
 在白板上可以这样推（这一步是我从 Eq.4–8 推出来的，原文只用文字说"policy 可以把 world model 生成的未来当作中间隐变量"）：
-$p(a\mid o_t,l)=\int p(a\mid o_{t:t+k},l)\,p(o_{t+1:t+k}\mid o_t,l)\,do$。如果再假设 $a\perp l\mid o_{t:t+k}$（看到未来就不再需要指令），第一项就退化成 IDM。所以 "passive WM × IDM" 正好就是 IDM-style policy 的分解。
+$p(a\mid o_t,l)=\int p(a\mid o_{t:t+k},l)\thinspace p(o_{t+1:t+k}\mid o_t,l)\thinspace do$。如果再假设 $a\perp l\mid o_{t:t+k}$（看到未来就不再需要指令），第一项就退化成 IDM。所以 "passive WM × IDM" 正好就是 IDM-style policy 的分解。
 
 ### 1. World Model for Policy：按"预测和动作生成怎么交互"分五类（Sec.3，Table 1，Fig.3/4）
 
-1. **IDM-style（decoupled，Sec.3.2，Eq.9–12）**：先生成未来 $\hat{\mathbf o}_{t+1:t+H}=\mathcal W(o_t,l)$（或 latent $\hat{\mathbf z}$），再用 $\pi=P(a_t\mid E_{img}(o_t),E_{text}(l),\Phi(\hat{\mathbf o}_{t+1:t+H}))$ 解码 chunk 长度为 $H'$ 的动作。WM 通常是先预训练，再冻结或轻量适配。这条线的演化方向是让"交给 policy 的未来"越来越紧凑：
+1. **IDM-style（decoupled，Sec.3.2，Eq.9–12）**：先生成未来 $\hat{\mathbf o}_ {t+1:t+H}=\mathcal W(o_t,l)$（或 latent $\hat{\mathbf z}$），再用 $\pi=P(a_t\mid E_{img}(o_t),E_{text}(l),\Phi(\hat{\mathbf o}_ {t+1:t+H}))$ 解码 chunk 长度为 $H'$ 的动作。WM 通常是先预训练，再冻结或轻量适配。这条线的演化方向是让"交给 policy 的未来"越来越紧凑：
    - 显式像素 rollout：UniPi；VidMan / Vidar 加了 masked IDM；Gen2Act 生成的是人类视频。
    - video diffusion 的中间特征：VPP、Video2Act。
    - 部分去噪的 latent visual plan：MimicVideo。
@@ -47,7 +47,7 @@ $p(a\mid o_t,l)=\int p(a\mid o_{t:t+k},l)\,p(o_{t+1:t+k}\mid o_t,l)\,do$。如�
    - 另有一支用 3D 结构作中间量：AVDC（dense correspondence）、VidBot、NovaFlow（3D object flow）。
 
    **弱点**：效果被生成未来的保真度卡住；"看着合理但与动作不一致"的预测会累积误差。
-2. **Single-backbone（Sec.3.3，Eq.13–14）**：把未来视觉和动作的表示拼成 $\mathbf x=[z^v;z^a]$，由共享 backbone 去噪：$\hat y=f_\theta(\tilde{\mathbf x}_\tau,o_t,l,\tau)$，$\mathcal L=\mathbb E[\ell(\hat y,y)]$，其中 $y$ 可以是 diffusion noise、flow velocity 或 masked token。代表作：
+2. **Single-backbone（Sec.3.3，Eq.13–14）**：把未来视觉和动作的表示拼成 $\mathbf x=[z^v;z^a]$，由共享 backbone 去噪： $\hat y=f_\theta(\tilde{\mathbf x}_ \tau,o_t,l,\tau)$， $\mathcal L=\mathbb E[\ell(\hat y,y)]$，其中 $y$ 可以是 diffusion noise、flow velocity 或 masked token。代表作：
    - UVA：学联合 latent，推理时可以跳过视频解码。
    - UWA：两个模态各用一个 timestep，靠控制 timestep 把视觉边缘化掉。
    - VideoVLA / VideoPolicy：直接把预训练视频生成器改造成 policy。
@@ -56,7 +56,7 @@ $p(a\mid o_t,l)=\int p(a\mid o_{t:t+k},l)\,p(o_{t+1:t+k}\mid o_t,l)\,do$。如�
    - UD-VLA（离散同步去噪）、GigaWorld-Policy（视觉分支在推理时可选）。
 
    **动机**：视频预训练带有运动连续性和时间因果先验，而 VLM 主要做的是图文对齐。但作者明确承认：**video backbone 是否稳定优于同规模的 VLM backbone，仍是开放问题**。
-3. **MoE/MoT（Sec.3.4，Eq.15）**：$(\mathbf h^v_{\ell+1},\mathbf h^a_{\ell+1})=\mathcal F^{\mathrm{mix}}_\ell(\mathbf h^v_\ell,\mathbf h^a_\ell;o_t,l)$。视频 expert 和动作 expert 参数分开，每层通过 joint / cross / shared attention 交互。结构上类似 π0 的 action expert，只是主干换成了视频生成器。三种做法：
+3. **MoE/MoT（Sec.3.4，Eq.15）**： $(\mathbf h^v_{\ell+1},\mathbf h^a_{\ell+1})=\mathcal F^{\mathrm{mix}}_ \ell(\mathbf h^v_\ell,\mathbf h^a_\ell;o_t,l)$。视频 expert 和动作 expert 参数分开，每层通过 joint / cross / shared attention 交互。结构上类似 π0 的 action expert，只是主干换成了视频生成器。三种做法：
    - 并行 expert：GE-Act 用深层 cross-attention 把视频 latent 注入 flow-matching 动作分支。
    - MoT 深度交互：Motus 有理解 / 视频 / 动作三个 expert；LingBot-VA 把视频和动作 token 交织成自回归序列；BagelVLA 用单步去噪的 Residual Flow Guidance；DiT4DiT。
    - latent expert：LDA-1B 在 DINO latent 里做预测；FRAPPE 对齐视觉基础模型的表示。
@@ -82,7 +82,7 @@ $p(a\mid o_t,l)=\int p(a\mid o_{t:t+k},l)\,p(o_{t+1:t+k}\mid o_t,l)\,do$。如�
 
 $$(\hat o_{t+1},\hat r_t,\hat d_t)\sim p_\phi(\cdot\mid o_{\le t},a_{\le t},l),\qquad J(\theta)=\mathbb E_{\hat\tau\sim(\pi_\theta,p_\phi)}\Big[\sum_t\gamma^t\hat r_t\Big]$$
 
-实际训练用 Eq.18：$\mathcal L_{\mathrm{RL}}=-\mathbb E_t[\min(r_t\hat A_t,\mathrm{clip}(r_t,1-\epsilon,1+\epsilon)\hat A_t)]$，$r_t=\pi_\theta/\pi_{\theta_{old}}$。注意这个式子本身就是 [PPO](../../04_rl/ppo/notes.md) 的 clipped surrogate。综述叫它 "GRPO-style"，但没有解释为什么这样叫，也没有定义 $\hat A_t$。我的理解是：按 GRPO 的做法，$\hat A_t$ 取组内相对归一化的回报，不需要 critic。组相对优势的定义见 [DeepSeek-R1](../../04_rl/deepseek-r1/notes.md) 里的 GRPO。
+实际训练用 Eq.18： $\mathcal L_{\mathrm{RL}}=-\mathbb E_t[\min(r_t\hat A_t,\mathrm{clip}(r_t,1-\epsilon,1+\epsilon)\hat A_t)]$， $r_t=\pi_\theta/\pi_{\theta_{old}}$。注意这个式子本身就是 [PPO](../../04_rl/ppo/notes.md) 的 clipped surrogate。综述叫它 "GRPO-style"，但没有解释为什么这样叫，也没有定义 $\hat A_t$。我的理解是：按 GRPO 的做法， $\hat A_t$ 取组内相对归一化的回报，不需要 critic。组相对优势的定义见 [DeepSeek-R1](../../04_rl/deepseek-r1/notes.md) 里的 GRPO。
 
 - **一级范式：WM 就是环境。**
   - 奠定"动作条件模拟 + 奖励生成"配方：UniSim、World-Env、VLA-RFT。

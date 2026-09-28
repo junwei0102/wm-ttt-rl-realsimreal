@@ -27,35 +27,37 @@ Dreamer 4 把 Dreamer 系列里的 RSSM 换成了可扩展的 block-causal Trans
 
 **0. 背景公式**（`main.tex` §2）
 
-- Flow matching（Eq.1）。$\tau=0$ 是纯噪声，$\tau=1$ 是干净数据：
-$$x_\tau=(1-\tau)x_0+\tau x_1,\quad x_0\sim\mathcal N(0,I),\quad \mathcal L=\|f_\theta(x_\tau,\tau)-(x_1-x_0)\|^2$$
-- Shortcut model（Eq.3–4）额外以步长 $d$ 为条件。在最细步长 $d_{\min}=1/K_{\max}$ 上用 flow loss；更大的步长用"两个半步"蒸馏出的 bootstrap 目标 $v_{\rm target}=\mathrm{sg}(b'+b'')/2$，其中 $b'=f(x_\tau,\tau,d/2)$，$x'=x_\tau+b'd/2$，$b''=f(x',\tau+d/2,d/2)$。$d$ 从 $1/\mathrm U\{1,2,4,\dots,K_{\max}\}$ 采样，$\tau$ 在该步长能到达的网格上均匀采样。Eq.4 字面写的是 $\{0,1/d,\dots,1-1/d\}$，按上下文应理解为间隔为 $d$ 的网格。
+- Flow matching（Eq.1）。 $\tau=0$ 是纯噪声， $\tau=1$ 是干净数据：
+$$x_\tau=(1-\tau)x_0+\tau x_1,\quad x_0\sim\mathcal N(0,I),\quad \mathcal L=\Vert f_\theta(x_\tau,\tau)-(x_1-x_0)\Vert^2$$
+- Shortcut model（Eq.3–4）额外以步长 $d$ 为条件。在最细步长 $d_{\min}=1/K_{\max}$ 上用 flow loss；更大的步长用"两个半步"蒸馏出的 bootstrap 目标 $v_{\rm target}=\mathrm{sg}(b'+b'')/2$，其中 $b'=f(x_\tau,\tau,d/2)$， $x'=x_\tau+b'd/2$， $b''=f(x',\tau+d/2,d/2)$。 $d$ 从 $1/\mathrm U\lbrace1,2,4,\dots,K_{\max}\rbrace$ 采样， $\tau$ 在该步长能到达的网格上均匀采样。Eq.4 字面写的是 $\lbrace0,1/d,\dots,1-1/d\rbrace$，按上下文应理解为间隔为 $d$ 的网格。
 - Diffusion forcing：序列里每个时间步各取一个独立的 $\tau_t$，所以每一帧既是去噪任务，也是后续帧的（带噪）上下文。
 
 **1. Causal tokenizer**（§3.1）
 
 - encoder 和 decoder 都是时间上因果的 block-causal transformer。每帧由 patch token 和可学习的 latent token 组成，latent 经线性降维加 `tanh` 形成 bottleneck。
 - Minecraft 设置：帧补零到 384×640，16×16 patch 得到 960 个 token。bottleneck 为 $512\times16$，送进 dynamics 时 reshape 成 $N_z=256$ 个 32 维 token（`appendix.tex`）。
-- 损失（Eq.5）：$\mathcal L=\mathcal L_{\rm MSE}+0.2\,\mathcal L_{\rm LPIPS}$。
+- 损失（Eq.5）： $\mathcal L=\mathcal L_{\rm MSE}+0.2\thinspace\mathcal L_{\rm LPIPS}$。
 - 训练时加 MAE 式 patch dropout，丢弃率 $p\sim U(0,0.9)$ 逐图采样，所以也会训练到推理时用的 $p=0$。作者说这能提升生成视频的空间一致性。
 
 **2. Interactive dynamics 与 shortcut forcing**（§3.2）
 
-- 输入是按时间交错的序列：动作 token、一个 $(\tau,d)$ token（两者离散，各做 embedding 后拼接）、$S_z$ 个空间 token，以及 $S_r$ 个 register token。
+- 输入是按时间交错的序列：动作 token、一个 $(\tau,d)$ token（两者离散，各做 embedding 后拼接）、 $S_z$ 个空间 token，以及 $S_r$ 个 register token。
 - 每个动作分量单独编码成 $S_a$ 个 token，再加上一个可学习 embedding。**没有动作标签的视频只用这个可学习 embedding**，这就是它能利用无标注视频的方式。
-- 前向（Eq.6）：$\tilde z=(1-\tau)z_0+\tau z_1$，$\hat z_1=f_\theta(\tilde z,\tau,d,a)$，其中 $\tau,d\in[0,1]^T$ 逐帧不同。
+- 前向（Eq.6）： $\tilde z=(1-\tau)z_0+\tau z_1$， $\hat z_1=f_\theta(\tilde z,\tau,d,a)$，其中 $\tau,d\in[0,1]^T$ 逐帧不同。
 - 关键改动是 **x-prediction**：网络直接预测干净 latent $\hat z_1$，不预测速度。作者认为 v-prediction 输出高频成分，逐帧自回归时会累积误差（§3.2）。bootstrap 项要在 v 空间里算，换算关系是 $\hat v=(\hat z_1-\tilde z)/(1-\tau)$，推导很直接：
-$$z_1-\tilde z=(1-\tau)(z_1-z_0)\;\Rightarrow\;\|\hat z_1-z_1\|^2=(1-\tau)^2\|\hat v-v\|^2$$
+$$z_1-\tilde z=(1-\tau)(z_1-z_0)\thickspace\Rightarrow\thickspace\Vert\hat z_1-z_1\Vert^2=(1-\tau)^2\Vert\hat v-v\Vert^2$$
   因此 bootstrap 损失要乘 $(1-\tau)^2$，拉回和 x 空间 flow loss 相同的量级（脚注）。
 - Shortcut forcing 损失（Eq.7）：
 $$b'=\frac{f_\theta(\tilde z,\tau,\tfrac d2,a)-\tilde z}{1-\tau},\quad z'=\tilde z+b'\tfrac d2,\quad b''=\frac{f_\theta(z',\tau+\tfrac d2,\tfrac d2,a)-z'}{1-(\tau+\tfrac d2)}$$
-$$\mathcal L=\begin{cases}\|\hat z_1-z_1\|_2^2 & d=d_{\min}\\[2pt] (1-\tau)^2\left\|\dfrac{\hat z_1-\tilde z}{1-\tau}-\mathrm{sg}(b'+b'')/2\right\|_2^2 & \text{else}\end{cases}$$
+
+$$\mathcal L=\begin{cases}\Vert\hat z_1-z_1\Vert_2^2 & d=d_{\min}\cr (1-\tau)^2\left\Vert\dfrac{\hat z_1-\tilde z}{1-\tau}-\mathrm{sg}(b'+b'')/2\right\Vert_2^2 & \text{else}\end{cases}$$
+
   原文 loss 里写成了 $\mathrm{sg}(b_1+b_2)$，与上一行的 $b',b''$ 记号不一致，是笔误。
-- **Ramp 权重**（Eq.8）：$w(\tau)=0.9\tau+0.1$。在低 $\tau$（接近纯噪声）处，x-pred 的最优解退化成"预测数据均值"，学习信号少，所以降低这部分的权重。
+- **Ramp 权重**（Eq.8）： $w(\tau)=0.9\tau+0.1$。在低 $\tau$（接近纯噪声）处，x-pred 的最优解退化成"预测数据均值"，学习信号少，所以降低这部分的权重。
 - **推理**：时间上自回归。每帧从噪声出发，按 $d=1/4$ 走 $K=4$ 步。过去帧加轻噪到 $\tau_{\rm ctx}=0.1$，让模型对自己生成时的小瑕疵更稳健。（注意：原文写的是 "slightly corrupt ... to signal level $\tau_{\rm ctx}=0.1$"，但按原文自己 $\tau=1$ 为干净数据的约定，字面上 signal level 0.1 是重噪；两处表述不一致，原文未澄清。）
 - **训练技巧**（§4 开头、§3.4）：
   - batch 里 30% 的视频当单张图像训练，学会无上下文生成首帧。
-  - 交替使用短 batch 和长 batch（Minecraft 为 $T_1=64$、$T_2=256$，context $C=192$），最后只用长 batch 微调。batch 长度要大于 context，否则模型会过拟合"context 开头永远是首帧"，影响长度泛化。
+  - 交替使用短 batch 和长 batch（Minecraft 为 $T_1=64$、 $T_2=256$，context $C=192$），最后只用长 batch 微调。batch 长度要大于 context，否则模型会过拟合"context 开头永远是首帧"，影响长度泛化。
 
 **3. Efficient transformer**（§3.4）
 
@@ -68,23 +70,23 @@ $$\mathcal L=\begin{cases}\|\hat z_1-z_1\|_2^2 & d=d_{\min}\\[2pt] (1-\tau)^2\le
 **4. Agent finetuning：BC + reward model**（§3.3，Eq.9）
 
 - 在 transformer 中插入 **agent token**，输入为 task embedding（one-hot）。注意力是单向的：agent token 能看所有模态，其他模态看不到 agent token。这样 world model 的未来预测只能被动作影响，不会被当前任务影响，作者称之为避免 causal confusion。
-- 在 agent token 的输出 $h_t$ 上用 multi-token prediction（$L=8$）训练 policy 和 reward head：
+- 在 agent token 的输出 $h_t$ 上用 multi-token prediction（ $L=8$）训练 policy 和 reward head：
 $$\mathcal L=-\sum_{n=0}^{L}\ln p_\theta(a_{t+n}\mid h_t)-\sum_{n=0}^{L}\ln p_\theta(r_{t+n}\mid h_t)$$
-- 输出参数化：reward head 沿用 DreamerV3 的 symexp twohot。键盘动作是 23 个 Bernoulli；鼠标是 121 类 categorical（μ-law，每个坐标 11 bin，$11\times11$）。
+- 输出参数化：reward head 沿用 DreamerV3 的 symexp twohot。键盘动作是 23 个 Bernoulli；鼠标是 121 类 categorical（μ-law，每个坐标 11 bin， $11\times11$）。
 - 同时继续施加 Eq.7 的视频预测损失，以保住已有能力。
 - 数据混合：50% 均匀采样序列，50% 完成了某个任务的"相关"序列。BC 损失只加在相关部分，dynamics 损失只加在均匀部分，目的是避免 world model 学成"乐观生成"。
 
 **5. Imagination training**（§3.3，Eq.10–11）
 
-- 新建 value head，并把 policy head 复制一份冻结，作为 behavioral prior。**只更新 policy 和 value head，transformer 冻结。**脚注说全量微调收益小、代价高，而且需要同时保留 dynamics、prior 和 reward 损失。
+- 新建 value head，并把 policy head 复制一份冻结，作为 behavioral prior。**只更新 policy 和 value head，transformer 冻结**。脚注说全量微调收益小、代价高，而且需要同时保留 dynamics、prior 和 reward 损失。
 - rollout 从数据集 context 出发，每个 context 只起 1 条（DreamerV3 是从每个状态都起）。transformer 自回归生成：latent 由 flow head 采样，动作由 policy head 采样，再由 reward head 和 value head 标注 $r_t, v_t$。
-- Value 用 TD(λ) 和 symexp twohot 训练（Eq.10），$\gamma=0.997$：
+- Value 用 TD(λ) 和 symexp twohot 训练（Eq.10）， $\gamma=0.997$：
 $$\mathcal L=-\sum_t\ln p_\theta(R^\lambda_t\mid s_t),\qquad R^\lambda_t=r_t+\gamma c_t\big((1-\lambda)v_t+\lambda R^\lambda_{t+1}\big),\quad R^\lambda_T=v_T$$
-- Policy 用 **PMPO**（Eq.11），只看 advantage $A=R^\lambda-v$ 的**符号**。全部想象状态按符号分成 $\mathcal D^+$（$A\ge0$）和 $\mathcal D^-$（$A<0$）：
-$$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta(a_i|s_i)-\frac{\alpha}{|\mathcal D^+|}\sum_{i\in\mathcal D^+}\ln\pi_\theta(a_i|s_i)+\frac{\beta}{N}\sum_{i=1}^N\mathrm{KL}[\pi_\theta(\cdot|s_i)\,\|\,\pi_{\rm prior}]$$
+- Policy 用 **PMPO**（Eq.11），只看 advantage $A=R^\lambda-v$ 的**符号**。全部想象状态按符号分成 $\mathcal D^+$（ $A\ge0$）和 $\mathcal D^-$（ $A<0$）：
+$$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta(a_i|s_i)-\frac{\alpha}{|\mathcal D^+|}\sum_{i\in\mathcal D^+}\ln\pi_\theta(a_i|s_i)+\frac{\beta}{N}\sum_{i=1}^N\mathrm{KL}[\pi_\theta(\cdot|s_i)\thinspace\Vert\thinspace\pi_{\rm prior}]$$
   - 前两项对正集做 maximum likelihood、对负集压低似然，两组各自取平均，所以正负样本数不平衡时不会偏向一边。
   - 因为忽略了 advantage 的量级，**不需要 return/advantage normalization**，20 个任务即使 return 尺度可能不同（reward 本身都是稀疏二值），也能得到同等关注。这正好取代了 DreamerV3 的 return normalization 加熵正则（`appendix.tex` "Previous Dreamer Generations"；DreamerV3 中具体是基于 percentile 的 return 归一化）。
-  - 取 $\alpha=0.5$、$\beta=0.3$。prior KL 用反向（$\pi_\theta$ 在前），比原版 PMPO 更强地把策略约束在合理行为附近。三项都以 nats 计，作者说它们之间的比例很稳健。
+  - 取 $\alpha=0.5$、 $\beta=0.3$。prior KL 用反向（ $\pi_\theta$ 在前），比原版 PMPO 更强地把策略约束在合理行为附近。三项都以 nats 计，作者说它们之间的比例很稳健。
 - λ 的取值、imagination horizon、RL 更新步数，论文都没有给出。
 
 **训练 / 推理各自怎么走**
@@ -140,7 +142,7 @@ $$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta
 
 - 评测方式：每个模型训练 48 小时，无 context 生成 1024 条 384 帧视频，动作由固定的 BC 策略给出，按 16 帧一段算 FVD。
 - 级联结果：
-  - 起点是朴素 diffusion forcing transformer（$N_z=64$，$K=64$），FVD 306、0.8 FPS。
+  - 起点是朴素 diffusion forcing transformer（ $N_z=64$， $K=64$），FVD 306、0.8 FPS。
   - 把 $K$ 降到 4 后 FVD 875、9.1 FPS。
   - 加 shortcut 后 329。
   - 加 X-prediction 后 326（单独几乎无用）。
@@ -151,7 +153,7 @@ $$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta
   - 加 GQA 后 71、23.2 FPS。
   - 时间分解的长 context 后 91、30.1 FPS。
   - 加 register 后 91。
-  - $N_z=128$ 时 66；$N_z=256$ 时 **57、21.4 FPS**。
+  - $N_z=128$ 时 66； $N_z=256$ 时 **57、21.4 FPS**。
 - 同样架构、改用 v 空间预测和损失时，FVD 为 124（正文）。
 - Figure 8：4 步 shortcut forcing 接近 64 步 diffusion forcing 的质量，快 16×。
 
@@ -171,7 +173,7 @@ $$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta
   - world model 的"14/16"来自人类玩家的主观完成判定，尝试次数、玩家人数都没有报。
 - **消融缺口**：
   - Table 2 是级联消融，结论依赖添加顺序。
-  - RL 部分没有消融 PMPO（例如与 DreamerV3 式 REINFORCE + retnorm 比较）、$\beta$、imagination horizon，也没有 reward model 的准确率。冻结与否只有脚注里的定性说法（全量微调"small additional benefits"），没有给数字。
+  - RL 部分没有消融 PMPO（例如与 DreamerV3 式 REINFORCE + retnorm 比较）、 $\beta$、imagination horizon，也没有 reward model 的准确率。冻结与否只有脚注里的定性说法（全量微调"small additional benefits"），没有给数字。
   - 离线 MBRL 最大的风险是策略利用 model error 或 reward model 的漏洞。论文只靠 BC prior 的 KL 加冻结 transformer 来约束，没有做不确定性惩罚，也没有度量"想象 return 与真实 return 的相关性"。
 - **收益归因**：从 Table 7 看，WM 预训练对 BC 的提升大于 imagination RL 的提升。"RL in imagination"更像锦上添花，只在长链条的后段显著。
 - **算力门槛**：256–1024 块 TPU-v5p 训练 2B 模型，总训练时长和 RL 阶段的算力都没有报告，也没有开源代码或权重。
@@ -216,13 +218,13 @@ $$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta
 
 ## 复现可行性
 
-- **代码**：官方未开源（项目页没有代码链接，已核查）。论文给出的超参数不完整：缺 $S_r$、$S_a$、层数和宽度、λ、imagination horizon、学习率、RL 步数。
+- **代码**：官方未开源（项目页没有代码链接，已核查）。论文给出的超参数不完整：缺 $S_r$、 $S_a$、层数和宽度、λ、imagination horizon、学习率、RL 步数。
 - **算力**：主模型 2B，在 256–1024 块 TPU-v5p 上训练（§4）。总时长没有报告。消融中每个模型训练 48 小时，硬件规模没有单独说明。推理为单 H100 21 FPS（Table 1）。完整复现 Minecraft 结果，个人或小组条件下不可行。
 - **数据/环境**：VPT contractor 数据（subsets 6–10），Minecraft 评测沿用 VPT 协议。机器人部分用 SOAR（180 小时），另有 Epic Kitchens 100。
 - **最小可复现实验**（验证机制，不追数字）：
-  1. **Shortcut forcing 消融**：选一个小型、带动作标注的视频数据集（例如自己从简单游戏或 SOAR 子集采集并降到 64×64），先训一个小 tokenizer 并冻结，再训小型 block-causal dynamics。对比四种设置：v-pred/v-loss、x-pred/v-loss、x-pred/x-loss、x-loss + ramp。每种都测 $K\in\{1,2,4,64\}$ 下长 rollout（远超训练长度）的 FVD 或 PSNR，检验 Table 2 第 3–6 行和 Figure 8 的趋势：X-loss 和 ramp 主要改善长 rollout，4 步 shortcut 接近 64 步。
+  1. **Shortcut forcing 消融**：选一个小型、带动作标注的视频数据集（例如自己从简单游戏或 SOAR 子集采集并降到 64×64），先训一个小 tokenizer 并冻结，再训小型 block-causal dynamics。对比四种设置：v-pred/v-loss、x-pred/v-loss、x-pred/x-loss、x-loss + ramp。每种都测 $K\in\lbrace1,2,4,64\rbrace$ 下长 rollout（远超训练长度）的 FVD 或 PSNR，检验 Table 2 第 3–6 行和 Figure 8 的趋势：X-loss 和 ramp 主要改善长 rollout，4 步 shortcut 接近 64 步。
   2. **动作标签稀疏度**：只给 0/1/10/100% 的视频动作标签（其余用可学习的空 embedding），画归一化 PSNR 曲线，对照 Figure 7 左。
-  3. **Agent 阶段**：在一个有真实环境可以评测的小任务上，比较 BC、WM+BC、WM+BC+PMPO imagination RL 的真实成功率，外加一组不带 prior KL（$\beta=0$）的对照，观察 model exploitation。
+  3. **Agent 阶段**：在一个有真实环境可以评测的小任务上，比较 BC、WM+BC、WM+BC+PMPO imagination RL 的真实成功率，外加一组不带 prior KL（ $\beta=0$）的对照，观察 model exploitation。
 - **预计难点**：
   - x 空间 bootstrap 损失的数值细节，例如 $\tau\to1$ 时除以 $(1-\tau)$。
   - 让 $(\tau,d)$ 网格采样与推理步数一致。
@@ -235,5 +237,5 @@ $$\mathcal L=\frac{1-\alpha}{|\mathcal D^-|}\sum_{i\in\mathcal D^-}\ln\pi_\theta
 1. 推导 x-prediction 的 flow loss 与 v 空间 loss 之间差一个 $(1-\tau)^2$ 因子。说明 Eq.7 的 bootstrap 目标怎样由两个半步构造，为什么 $d=d_{\min}$ 时要退回 flow loss，以及 ramp 权重 $w(\tau)=0.9\tau+0.1$ 为什么要压低低 $\tau$ 的权重。
 2. 从 Table 2 看，单独改 X-prediction（329→326）几乎没用，改 X-loss（→151）却大幅改善。这说明问题出在参数化上还是损失空间上？为什么 v-prediction 更容易在逐帧自回归中累积误差？
 3. agent token 为什么只能"看别人"、不能"被看"？如果视频 token 能 attend 到 task embedding，在 imagination 中会出现什么 causal confusion？为什么 dynamics 损失只用均匀采样的序列？
-4. PMPO 只用 advantage 的符号，并对正负集分别取平均。它相对 DreamerV3 的"return 除以 $\max(1,S)$ 加熵正则"解决了什么问题（提示：20 个 return 尺度可能不同的任务）？反向 KL $\mathrm{KL}[\pi_\theta\|\pi_{\rm prior}]$ 和前向 KL 对策略的约束有什么不同？
+4. PMPO 只用 advantage 的符号，并对正负集分别取平均。它相对 DreamerV3 的"return 除以 $\max(1,S)$ 加熵正则"解决了什么问题（提示：20 个 return 尺度可能不同的任务）？反向 KL $\mathrm{KL}[\pi_\theta\Vert\pi_{\rm prior}]$ 和前向 KL 对策略的约束有什么不同？
 5. 无动作标签的视频在 dynamics 里是怎样被使用的？Overworld → Nether/End 的实验控制了什么变量，得到 76%/80% 的归一化分数说明了什么，又没能说明什么（例如能否推广到跨 embodiment 的 web 视频）？

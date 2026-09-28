@@ -9,31 +9,35 @@
 
 ## 问题设定
 
-- **设定**（§2 定义框）：给定一个预训练 LLM $\pi_\theta$ 和某个 benchmark 的全部测试题 $\{x\}$（只有题，没有答案），在这些题上用 RL 更新 $\theta$，然后在**同一批题**上评测。每个 benchmark 单独训一次（§3.1 "apply TTRL to each benchmark individually"），本质上是 transductive、数据集级别的适应，不是逐样本的流式 TTA。
+- **设定**（§2 定义框）：给定一个预训练 LLM $\pi_\theta$ 和某个 benchmark 的全部测试题 $\lbrace x\rbrace$（只有题，没有答案），在这些题上用 RL 更新 $\theta$，然后在**同一批题**上评测。每个 benchmark 单独训一次（§3.1 "apply TTRL to each benchmark individually"），本质上是 transductive、数据集级别的适应，不是逐样本的流式 TTA。
 - **输入/输出**：输入是题目 prompt $x$，输出是 CoT 加最终答案。answer extractor 从中抽出离散答案 $\hat y$（数学题的数值、GPQA 的选项），这样才能投票和做精确比对。
 - **隐含假设**：① 答案可离散化、可判等；② 模型对目标任务已有足够先验，投票结果与正确答案有一定相关性（§4.3 明确说先验不足会失败）；③ 采样分布既不能完全坍到一个答案（否则没有梯度），也不能太发散。
 - **之前卡在哪**：RL for reasoning（[DeepSeek-R1](../../04_rl/deepseek-r1/notes.md)、GRPO）依赖 ground-truth 才能算 rule-based reward。经典 TTT/TTA（[TTT](../ttt-self-supervised/notes.md) 的自监督辅助任务、[Tent](../tent/notes.md) 的熵最小化）是为分类/视觉设计的。"用 majority voting 挑自生成 CoT 做 SFT"的 self-training（Huang et al. 2022）被认为以初始模型的 maj@n 为上界（§4.1）。self-rewarding 类工作多做 instruction following，或者用的是 DPO 而不是 online RL（§5.2）。
 
 ## 核心方法
 
-**1. RL 目标**（`source/colm2025_conference.tex` §2.1，Eq.1–2）：把 prompt 当 state、回答当 action，共识答案 $y^*$ 当"最优动作的代理"：
-$$\max_\theta \mathbb{E}_{y\sim\pi_\theta(\cdot|x)}\big[r(y,y^*)\big],\qquad \theta\leftarrow\theta+\eta\nabla_\theta\mathbb{E}_{y\sim\pi_\theta(\cdot|x)}\big[r(y,y^*)\big].$$
+**1. RL 目标**（`source/colm2025_conference.tex` §2.1，Eq.1–2）：把 prompt 当 state、回答当 action，共识答案 $y^{\ast}$ 当"最优动作的代理"：
+$$\max_\theta \mathbb{E}_ {y\sim\pi_\theta(\cdot|x)}\big[r(y,y^{\ast})\big],\qquad \theta\leftarrow\theta+\eta\nabla_\theta\mathbb{E}_ {y\sim\pi_\theta(\cdot|x)}\big[r(y,y^{\ast})\big].$$
 
-**2. 标签估计**（Appendix C Eq.4，属于 test-time inference 的通用形式）：$y^*=\arg\max_{y_i}s(y_i,x)$。TTRL 里的打分函数 $s$ 取 majority voting，即 $P=\{\hat y_i\}_{i=1}^N$ 中出现次数最多的答案。
+**2. 标签估计**（Appendix C Eq.4，属于 test-time inference 的通用形式）： $y^{\ast}=\arg\max_{y_i}s(y_i,x)$。TTRL 里的打分函数 $s$ 取 majority voting，即 $P=\lbrace\hat y_i\rbrace_{i=1}^N$ 中出现次数最多的答案。
 
 **3. 奖励**（§2.2 Eq.3，Listing 1）：
-$$R(\hat y_i,y)=\begin{cases}1,&\text{if }\hat y_i=y,\\0,&\text{otherwise}.\end{cases}$$
-原文 Eq.3 把投票得到的估计标签记作 $y$；它就是 §2.1 里的共识答案 $y^*$，下文统一写 $y^*$。
+
+$$R(\hat y_i,y)=\begin{cases}1,&\text{if }\hat y_i=y,\cr0,&\text{otherwise}.\end{cases}$$
+
+原文 Eq.3 把投票得到的估计标签记作 $y$；它就是 §2.1 里的共识答案 $y^{\ast}$，下文统一写 $y^{\ast}$。
 
 **4. 策略优化**：论文直接套 GRPO（§3.1），也验证了 PPO 和 PRIME（Fig.5）。论文没写 GRPO 公式。按 GRPO 原文，组内 advantage 为 $A_i=(r_i-\bar r)/\mathrm{std}(r)$。下面是**我自己的推导**：设某题的 majority ratio（多数答案在组内的占比）为 $m$（近似：投票用 64 条，训练组是下采样的 32 条，组内占比只是约等于 $m$），二元奖励下均值为 $m$、标准差（总体标准差）为 $\sqrt{m(1-m)}$，于是
 $$A^{+}=\sqrt{\tfrac{1-m}{m}},\qquad A^{-}=-\sqrt{\tfrac{m}{1-m}}.$$
-推论：$m\to1$（所有样本一致）时组内方差为 0，这道题不产生梯度。$m$ 小时，多数派样本拿到很大的正 advantage。所以 TTRL 的梯度实际上是把概率质量推向众数答案，也就是在答案层面让分布"变尖"（sharpening）。这个效果和 Tent 的熵最小化同向，不过作用在整条序列的最终答案上，而且是靠 on-policy 采样加 policy gradient 实现的；Tent 则直接对模型输出分布的熵求梯度。两者都是 online 的，区别不在这里。
+推论： $m\to1$（所有样本一致）时组内方差为 0，这道题不产生梯度。 $m$ 小时，多数派样本拿到很大的正 advantage。所以 TTRL 的梯度实际上是把概率质量推向众数答案，也就是在答案层面让分布"变尖"（sharpening）。这个效果和 Tent 的熵最小化同向，不过作用在整条序列的最终答案上，而且是靠 on-policy 采样加 policy gradient 实现的；Tent 则直接对模型输出分布的熵求梯度。两者都是 online 的，区别不在这里。
 
 **5. vote-then-sample**（§3.1）：每题采 64 个回答用于投票，再从中下采样 32 个进训练 batch。投票用大样本让标签更准，训练用小样本省算力。
 
 **6. 为什么错标签也能训：Lucky Hit**（§4.2，Fig.10）。rule-based verifier 只做"是否等于标签"的比较。一个错误回答只要与（同样错的）伪标签不同，就会拿到 0，而这恰好是正确的奖励。用 Appendix B 的定义可以写成闭式（**我的推导**）。记 $g$ 为 ground-truth 答案在组内的占比：
-$$\text{RewardAcc}=\begin{cases}1,&y^*=y_{\text{gt}}\\1-(m+g),&y^*\neq y_{\text{gt}}\end{cases}$$
-标签错时，只有"等于错标签的样本"（本应得 0 却得 1）和"等于真答案的样本"（本应得 1 却得 0）的奖励是错的。拿 Fig.10 的玩具例子验证：预测为 1 1 2 2 2 4 5 6，伪标签为 2，真值为 3，$m=3/8$，$g=0$，得 $1-0.375=62.5\%$，与图中一致。所以模型越弱、答案越发散（$m$ 小），奖励反而越准。
+
+$$\text{RewardAcc}=\begin{cases}1,&y^{\ast}=y_{\text{gt}}\cr1-(m+g),&y^{\ast}\neq y_{\text{gt}}\end{cases}$$
+
+标签错时，只有"等于错标签的样本"（本应得 0 却得 1）和"等于真答案的样本"（本应得 1 却得 0）的奖励是错的。拿 Fig.10 的玩具例子验证：预测为 1 1 2 2 2 4 5 6，伪标签为 2，真值为 3， $m=3/8$， $g=0$，得 $1-0.375=62.5$%，与图中一致。所以模型越弱、答案越发散（ $m$ 小），奖励反而越准。
 
 **7. Online**（§4.2）：每一步都用当前策略重新投票，模型变强后 maj@n 也跟着变好，标签质量随训练提升（Fig.6）。offline self-training 的标签在训练前就固定了，做不到这一点。
 
@@ -106,13 +110,13 @@ $$\text{RewardAcc}=\begin{cases}1,&y^*=y_{\text{gt}}\\1-(m+g),&y^*\neq y_{\text{
 - **最小复现**：Qwen2.5-Math-1.5B 在 MATH-500 上，10 episode，64 投票/32 训练，温度 1.0，最大长度 3,072。
   - 目标 1：复现 Table 1 的 32.7→73.0，或 Fig.5 中约 30 步内准确率 ~0.34→~0.68 的曲线。
   - 目标 2：同时用真标签离线记录 majority ratio $m$、ground-truth ratio $g$、标签准确率和奖励准确率，检验 $\text{RewardAcc}=1-(m+g)$（标签错时）。
-  - 扩展（补论文缺的消融）：投票数 $N\in\{8,16,64\}$，以及与"答案级熵最小化"基线的对比。
+  - 扩展（补论文缺的消融）：投票数 $N\in\lbrace8,16,64\rbrace$，以及与"答案级熵最小化"基线的对比。
 - **难点**：温度、batch 等超参很敏感（Fig.11）；answer extractor / verifier 的判等细节会直接改变投票结果；无标签时怎么选 checkpoint；AIME 题量小，结果方差大。
 
 ## 自测问题
 
 1. 用 Appendix B 的定义推导：majority label 错误时，奖励准确率如何由 majority ratio $m$ 和 ground-truth ratio $g$ 决定？为什么 Fig.9 中奖励准确率会随训练下降？
-2. 在 GRPO 的组内归一化下，二元 majority 奖励的正/负 advantage 如何随 $m$ 变化？$m\to1$ 时会发生什么？哪些题真正贡献梯度？
+2. 在 GRPO 的组内归一化下，二元 majority 奖励的正/负 advantage 如何随 $m$ 变化？ $m\to1$ 时会发生什么？哪些题真正贡献梯度？
 3. 为什么 majority-vote self-training（SFT）以初始 maj@n 为上界，而 TTRL 的 avg@n 能超过它？"online"和"RL（而非 SFT）"各自起什么作用？
 4. TTRL 与 Tent 都是"用模型自身的置信度当监督"。两者在更新的参数、信号粒度（token/类别 vs 最终答案）、坍塌风险上有什么异同？
 5. 要把 TTRL 的思路搬到机器人 policy 的部署时适应（连续动作、没有离散答案），majority voting 需要换成什么？本文的哪些隐含假设会失效？

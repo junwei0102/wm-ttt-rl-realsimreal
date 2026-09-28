@@ -30,17 +30,17 @@
   - 用低分辨率 heightfield 转成三角网格，再修正竖直面，而不是提高 heightfield 分辨率。
   - PhysX 即使忽略机器人之间的接触也仍会做检测，所以机器人散得越开越快。训练初期和末期的仿真时间差约 2 倍（A.1.2）。
 
-**2. 大规模并行下的 batch 分配（§2.2.1）。** on-policy 每次更新用的样本数为
+**2. 大规模并行下的 batch 分配（§2.2.1）。** on-policy 每次更新用的样本数为（`source/merged.tex` §2.2.1）
 
-$$B = n_{robots}\, n_{steps}\qquad(\text{`source/merged.tex` §2.2.1})$$
+$$B = n_{robots}\thinspace n_{steps}$$
 
 $n_{robots}$ 提高了几个数量级，所以 $n_{steps}$ 必须变小，但它有下限。PPO 用 GAE（以下是标准形式，本文没有写出公式，见 [PPO 笔记](../../04_rl/ppo/notes.md)）：
 
-$$\delta_t=r_t+\gamma V_\phi(s_{t+1})-V_\phi(s_t),\qquad \hat A_t=\sum_{l=0}^{n_{steps}-t-1}(\gamma\lambda)^l\,\delta_{t+l}$$
+$$\delta_t=r_t+\gamma V_\phi(s_{t+1})-V_\phi(s_t),\qquad \hat A_t=\sum_{l=0}^{n_{steps}-t-1}(\gamma\lambda)^l\thinspace\delta_{t+l}$$
 
-在 rollout 末尾用 $V_\phi$ bootstrap，其中 $\gamma=0.99$，$\lambda=0.95$（Table 3）。
+在 rollout 末尾用 $V_\phi$ bootstrap，其中 $\gamma=0.99$， $\lambda=0.95$（Table 3）。
 - **下限**：作者发现 $n_{steps}<25$（0.5 s 仿真时间）时算法难以收敛到最优解，解释是 GAE 需要多步 reward 才有效。
-- **与 episode 长度的区别**：$n_{steps}$ 不等于 episode 长度。time-out 定为 20 s，环境不在每次迭代后 reset，所以一个 episode 横跨很多次策略更新（按 50 Hz 算，一个 episode 是 1000 步，约 42 次迭代，这是我算的）。
+- **与 episode 长度的区别**： $n_{steps}$ 不等于 episode 长度。time-out 定为 20 s，环境不在每次迭代后 reset，所以一个 episode 横跨很多次策略更新（按 50 Hz 算，一个 episode 是 1000 步，约 42 次迭代，这是我算的）。
 - **mini-batch**：用"数万"量级，比常规做法大得多。论文说这样能稳定学习，而且不增加训练时间。
 
 最终使用的 PPO 配置（Table 3）：
@@ -53,16 +53,16 @@ $$\delta_t=r_t+\gamma V_\phi(s_{t+1})-V_\phi(s_t),\qquad \hat A_t=\sum_{l=0}^{n_
 | clip | 0.2 |
 | entropy coef | 0.01 |
 
-PPO 的目标函数是标准的 $L^{CLIP}=\mathbb E_t[\min(\rho_t\hat A_t,\ \mathrm{clip}(\rho_t,1\pm0.2)\hat A_t)]$（本文没有写出公式，只给了 clip range 0.2）。学习率按 KL 自适应（Alg. 1，$kl^*=0.01$）：
+PPO 的目标函数是标准的 $L^{CLIP}=\mathbb E_t[\min(\rho_t\hat A_t,\ \mathrm{clip}(\rho_t,1\pm0.2)\hat A_t)]$（本文没有写出公式，只给了 clip range 0.2）。学习率按 KL 自适应（Alg. 1， $kl^{\ast}=0.01$）：
 
-$$\alpha\leftarrow\begin{cases}\max(10^{-5},\ \alpha/1.5) & kl>2kl^*\\ \min(10^{-2},\ 1.5\alpha) & kl<0.5kl^*\\ \alpha & \text{otherwise}\end{cases}$$
+$$\alpha\leftarrow\begin{cases}\max(10^{-5},\ \alpha/1.5) & kl>2kl^{\ast}\cr \min(10^{-2},\ 1.5\alpha) & kl<0.5kl^{\ast}\cr \alpha & \text{otherwise}\end{cases}$$
 
 **3. time-out bootstrapping（§2.2.2、A.2）。** critic 预测的是无限 horizon 的折扣回报。
 - **failure 终止**（base 触地算 crash）可以由状态预测，因此把回报截断是对的。
 - **time-out 终止**无法预测，因为观测里没有 episode 时间。如果把它也当成终止处理，critic target 就是错的。
 - 论文只用文字描述了解法。我把它形式化如下：
 
-$$y_t=\begin{cases}r_t & \text{failure 终止}\\ r_t+\gamma V_\phi(s_{t+1}) & \text{time-out 或未终止}\end{cases}\quad\Leftrightarrow\quad \tilde r_t=r_t+\gamma V_\phi(s_{t+1})\ \text{（time-out 时把 bootstrap 值并入 reward，再按终止处理）}$$
+$$y_t=\begin{cases}r_t & \text{failure 终止}\cr r_t+\gamma V_\phi(s_{t+1}) & \text{time-out 或未终止}\end{cases}\quad\Leftrightarrow\quad \tilde r_t=r_t+\gamma V_\phi(s_{t+1})\ \text{（time-out 时把 bootstrap 值并入 reward，再按终止处理）}$$
 
 （这里用一步 TD target 示意；实际的 critic target 是 GAE 算出的 return，time-out 的处理方式相同。）
 
@@ -74,7 +74,7 @@ $$y_t=\begin{cases}r_t & \text{failure 终止}\\ r_t+\gamma V_\phi(s_{t+1}) & \t
 - **状态**：每个机器人有自己的（地形类型, level）。stairs 和 obstacles 的台阶高度从 5 cm 升到 20 cm，坡度从 0° 升到 25°。
 - **规则**：
   - **升级**：走出自己那块地的边界，下次 reset 时换到更难的地块。
-  - **降级**：episode 结束时位移 $d<\tfrac12\lVert v^*\rVert\,T$，即不到指令速度应走距离的一半（公式是我对文字的形式化）。
+  - **降级**：episode 结束时位移 $d<\tfrac12\lVert v^{\ast}\rVert\thinspace T$，即不到指令速度应走距离的一半（公式是我对文字的形式化）。
   - **循环**：通过最高级的机器人被随机送回某个 level，用来保持多样性、避免 catastrophic forgetting。
 - **与 Lee 2020 的 particle filter 课程相比**：不需要重采样和重新生成地形。
 - **与 Florensa 等人的 automatic goal generation 相比**：不需要用 generator 网络去学策略的性能分布。数千个机器人在各 level 上的分布本身就是当前策略的性能分布，而且计算开销接近 0。
@@ -83,19 +83,19 @@ $$y_t=\begin{cases}r_t & \text{failure 终止}\\ r_t+\gamma V_\phi(s_{t+1}) & \t
   - 第 1000 次迭代时，所有地形都已到最高级。
   - 总共训练 1500 次迭代。
 
-**5. 奖励（Table 2，$\phi(x)=\exp(-\lVert x\rVert^2/0.25)$，z 轴与重力对齐）。**
+**5. 奖励（Table 2， $\phi(x)=\exp(-\lVert x\rVert^2/0.25)$，z 轴与重力对齐）。**
 
 | 项 | 定义 | 权重 |
 |---|---|---|
-| 线速度跟踪 | $\phi(v^*_{b,xy}-v_{b,xy})$ | $1\,dt$ |
-| 角速度跟踪 | $\phi(\omega^*_{b,z}-\omega_{b,z})$ | $0.5\,dt$ |
-| z 向线速度惩罚 | $-v_{b,z}^2$ | $4\,dt$ |
-| xy 角速度惩罚 | $-\lVert\omega_{b,xy}\rVert^2$ | $0.05\,dt$ |
-| 关节运动 | $-\lVert\ddot q_j\rVert^2-\lVert\dot q_j\rVert^2$ | $0.001\,dt$ |
-| 关节力矩 | $-\lVert\tau_j\rVert^2$ | $0.00002\,dt$ |
-| action rate | $-\lVert\dot q^*_j\rVert^2$ | $0.25\,dt$ |
-| 碰撞 | $-n_{collision}$ | $0.001\,dt$ |
-| feet air time | $\sum_f(t_{air,f}-0.5)$ | $2\,dt$ |
+| 线速度跟踪 | $\phi(v^{\ast}_ {b,xy}-v_{b,xy})$ | $1\thinspace dt$ |
+| 角速度跟踪 | $\phi(\omega^{\ast}_ {b,z}-\omega_{b,z})$ | $0.5\thinspace dt$ |
+| z 向线速度惩罚 | $-v_{b,z}^2$ | $4\thinspace dt$ |
+| xy 角速度惩罚 | $-\lVert\omega_{b,xy}\rVert^2$ | $0.05\thinspace dt$ |
+| 关节运动 | $-\lVert\ddot q_j\rVert^2-\lVert\dot q_j\rVert^2$ | $0.001\thinspace dt$ |
+| 关节力矩 | $-\lVert\tau_j\rVert^2$ | $0.00002\thinspace dt$ |
+| action rate | $-\lVert\dot q^{\ast}_ j\rVert^2$ | $0.25\thinspace dt$ |
+| 碰撞 | $-n_{collision}$ | $0.001\thinspace dt$ |
+| feet air time | $\sum_f(t_{air,f}-0.5)$ | $2\thinspace dt$ |
 
 knee 或 shank 发生接触、脚与竖直面接触都算 collision。base 发生接触算 crash，直接 reset。原表把求和写成 $\sum_{f=0}^{4}$，应为 4 只脚。
 
@@ -204,7 +204,7 @@ knee 或 shank 发生接触、脚与竖直面接触都算 collision。base 发�
 - **最小可复现实验建议**：
   1. `anymal_c_flat` headless 训练，核对"平地不到 4 min"和 reward 曲线的形状。
   2. 复现 Fig. 10：按图中的横轴，flat 训练约 270 次迭代、rough 训练约 1500 次迭代（图读数），一组开 time-out bootstrap、一组关掉，对比 total reward（预期差约 10%–20%）和 critic loss。
-  3. 缩小版 Fig. 4：关掉课程、降低台阶高度，固定 $B=98304$，令 $n_{robots}\in\{512,2048,4096,16384\}$（对应 $n_{steps}=192,48,24,6$），各跑 3 个 seed，验证 16384 处的性能断崖。
+  3. 缩小版 Fig. 4：关掉课程、降低台阶高度，固定 $B=98304$，令 $n_{robots}\in\lbrace512,2048,4096,16384\rbrace$（对应 $n_{steps}=192,48,24,6$），各跑 3 个 seed，验证 16384 处的性能断崖。
 - **难点**：
   - Isaac Gym Preview 的环境（旧 Python、旧 CUDA）安装麻烦，可以考虑直接用 Isaac Lab 的对应任务，但数字不一定能对上。
   - 论文没写网络结构，要以代码配置为准。
@@ -212,7 +212,7 @@ knee 或 shank 发生接触、脚与竖直面接触都算 collision。base 发�
 
 ## 自测问题
 
-1. 固定 $B=n_{robots}n_{steps}$ 时，$n_{robots}$ 过大和过小都会掉性能。两侧分别是什么机制？为什么 batch 越大，右侧的断崖越往右移？
+1. 固定 $B=n_{robots}n_{steps}$ 时， $n_{robots}$ 过大和过小都会掉性能。两侧分别是什么机制？为什么 batch 越大，右侧的断崖越往右移？
 2. failure 终止和 time-out 终止下，critic target 分别怎么写？为什么在"每次迭代 24 步、episode 20 s"的设定下，忽略两者的区别比在标准 Gym 设定下伤害更大？
 3. 游戏式课程的升级、降级、循环规则各是什么？为什么说"机器人在各 level 上的分布"本身就是策略性能分布的估计？相比 particle filter 课程，它省掉了哪些计算？
 4. 这个策略部署时参数完全固定。它靠哪几个训练期手段对抗 sim-to-real gap？与 RMA 相比缺了哪种能力，预期会在什么真实扰动下失效？

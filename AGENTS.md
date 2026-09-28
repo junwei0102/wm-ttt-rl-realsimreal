@@ -59,12 +59,19 @@ bash scripts/fetch-paper.sh <arxiv-id> <主题目录>/<slug>
 
 ## 硬规矩
 
-1. **不要自己发明术语。**解释你在做什么的时候用论文里已有的词
+1. **不要自己发明术语**。解释你在做什么的时候用论文里已有的词
    （world model, latent dynamics, RSSM, model-based RL, imagination / latent rollout, MPC, planning;
    test-time training (TTT), test-time adaptation (TTA), self-supervised auxiliary task, fast weights, inner loop / outer loop;
    sim-to-real gap, domain randomization, system identification, real-to-sim, digital twin, Gaussian splatting, 3D reconstruction;
    MDP, policy gradient, actor-critic, PPO, SAC, offline RL, reward model, RLHF, GRPO），别造新词。
-2. **改实验之前先说你要改什么、为什么。**不要直接动手跑。
-3. **每版实验都要有名字。**命名规则见 `experiment/results.md`，不许出现 `test2` `final_v2_new`。
-4. **跑完必须走标准化测评。**见 `experiment/evaluation.md`，不要临时挑指标。
-5. **窗口快满了跟我说，我让你更新 handoff。**不要硬撑到被截断。
+2. **改实验之前先说你要改什么、为什么**。不要直接动手跑。
+3. **每版实验都要有名字**。命名规则见 `experiment/results.md`，不许出现 `test2` `final_v2_new`。
+4. **跑完必须走标准化测评**。见 `experiment/evaluation.md`，不要临时挑指标。
+5. **窗口快满了跟我说，我让你更新 handoff**。不要硬撑到被截断。
+6. **写完或改完 markdown 先跑 `python3 scripts/fix_md_render.py`**。GitHub 渲染公式有几个坑：
+   - `$` 紧贴中文或全角标点时不渲染；
+   - `\{`、`\|`、`\,`、`\\` 会被 markdown 吃掉反斜杠；
+   - `\mathbf{x}_t` 里的 `_` 和公式里的 `*` 会被当成斜体；
+   - `**……。**后文` 这种加粗闭合不了。
+
+   这个脚本按统一规则修好以上问题，而且可以重复跑（幂等）。规则写在脚本开头的说明里。

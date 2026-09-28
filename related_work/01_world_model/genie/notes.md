@@ -30,16 +30,16 @@ Genie 只用**没有动作标注**的互联网 2D 平台游戏视频（30k 小�
 - 一层 FFW。论文特意去掉了 spatial 层后面的 FFW，把参数省下来给其他部分，作者说这样效果"显著更好"，但没有给数字。
 
 复杂度可以这样推（下面是我按论文"主导项随帧数线性增长"这句话做的推导）：
-- 一个 block 的注意力开销约为 $O\big(T(HW)^2 + HW\,T^2\big)$，对比全时空注意力的 $O\big((THW)^2\big)$。
+- 一个 block 的注意力开销约为 $O\big(T(HW)^2 + HW\thinspace T^2\big)$，对比全时空注意力的 $O\big((THW)^2\big)$。
 - 当 $HW\gg T$ 时，主导项 $T(HW)^2$ 随帧数线性增长。
 
 **2. Video tokenizer（ST-ViViT）**（Figure 6）
 
-这是一个 VQ-VAE，把视频编码成每帧一组离散 token：$\bm x_{1:T}\in\mathbb R^{T\times H\times W\times C}\mapsto \bm z_{1:T}\in\mathbb I^{T\times D}$。encoder 和 decoder 都是 causal ST-transformer，所以 $z_t$ 里含有 $\bm x_{1:t}$ 的信息。
+这是一个 VQ-VAE，把视频编码成每帧一组离散 token： $\bm x_{1:T}\in\mathbb R^{T\times H\times W\times C}\mapsto \bm z_{1:T}\in\mathbb I^{T\times D}$。encoder 和 decoder 都是 causal ST-transformer，所以 $z_t$ 里含有 $\bm x_{1:t}$ 的信息。
 
 论文只说用了 "standard VQ-VAE objective"，没有写出公式。标准形式（van den Oord 2017）是：
 
-$$\mathcal L_{\text{VQ}}=\|x-\hat x\|_2^2+\|\mathrm{sg}[z_e]-e\|_2^2+\beta\|z_e-\mathrm{sg}[e]\|_2^2$$
+$$\mathcal L_{\text{VQ}}=\Vert x-\hat x\Vert_2^2+\Vert\mathrm{sg}[z_e]-e\Vert_2^2+\beta\Vert z_e-\mathrm{sg}[e]\Vert_2^2$$
 
 配置：200M 参数，patch 4，码本 1024 个码字、每个 32 维（`main.tex` §3 Training Details、Table 7）。
 
@@ -49,7 +49,7 @@ $$\mathcal L_{\text{VQ}}=\|x-\hat x\|_2^2+\|\mathrm{sg}[z_e]-e\|_2^2+\beta\|z_e-
 
 LAM 由 encoder、VQ 码本和 decoder 组成（下式按 §2.1 的文字整理，论文没有给显式公式；encoder 先输出连续的 latent action，再经 VQ 量化）：
 
-$$\tilde a_t=\mathrm{VQ}\big(\mathrm{Enc}(\bm x_{1:t},x_{t+1})\big)\in\{e_1,\dots,e_{|A|}\},\qquad \hat x_{t+1}=\mathrm{Dec}(\bm x_{1:t},\tilde{\bm a}_{1:t})$$
+$$\tilde a_t=\mathrm{VQ}\big(\mathrm{Enc}(\bm x_{1:t},x_{t+1})\big)\in\lbrace e_1,\dots,e_{|A|}\rbrace,\qquad \hat x_{t+1}=\mathrm{Dec}(\bm x_{1:t},\tilde{\bm a}_ {1:t})$$
 
 它用 VQ-VAE 目标训练，重建的是像素 $x_{t+1}$。输入归一化到 $[0,1]$，decoder 输出过 sigmoid（Appendix C.1）。
 
@@ -64,11 +64,11 @@ $$\tilde a_t=\mathrm{VQ}\big(\mathrm{Enc}(\bm x_{1:t},x_{t+1})\big)\in\{e_1,\dot
 
 **4. Dynamics model**（Figure 7，`main.tex` §2.1）
 
-这是一个 decoder-only 的 MaskGIT ST-transformer。输入是 $\bm z_{1:T-1}$ 和 $\mathrm{sg}[\tilde{\bm a}_{1:T-1}]$，输出 $\hat{\bm z}_{2:T}$。
+这是一个 decoder-only 的 MaskGIT ST-transformer。输入是 $\bm z_{1:T-1}$ 和 $\mathrm{sg}[\tilde{\bm a}_ {1:T-1}]$，输出 $\hat{\bm z}_ {2:T}$。
 
 按 §2.1 的文字整理成公式如下（论文没有给显式公式）：
 
-$$\mathcal L_{\text{dyn}}=\sum_{t=2}^{T}\mathrm{CE}\big(\hat z_t,\;z_t\big),\quad \hat z_t=f_\theta\big(\bm m\odot\bm z_{1:t-1},\ \mathrm{sg}[\tilde{\bm a}_{1:t-1}]\big)$$
+$$\mathcal L_{\text{dyn}}=\sum_{t=2}^{T}\mathrm{CE}\big(\hat z_t,\thickspace z_t\big),\quad \hat z_t=f_\theta\big(\bm m\odot\bm z_{1:t-1},\ \mathrm{sg}[\tilde{\bm a}_ {1:t-1}]\big)$$
 
 其中：
 - 只对 $z_{2:T-1}$ 做 Bernoulli mask，mask 率 $r\sim U(0.5,1)$；prompt 帧 $z_1$ 从不被 mask。
@@ -93,7 +93,7 @@ $$\mathcal L_{\text{dyn}}=\sum_{t=2}^{T}\mathrm{CE}\big(\hat z_t,\;z_t\big),\qua
 
 $$\Delta_t\text{PSNR}=\text{PSNR}(x_t,\hat x_t)-\text{PSNR}(x_t,\hat x_t')$$
 
-其中 $\hat x_t$ 用从真实帧推断出的 latent action 生成，$\hat x_t'$ 用随机采样的 latent action 生成。所有实验都在 $t=4$ 报告这个指标，值越大说明动作的影响越大。
+其中 $\hat x_t$ 用从真实帧推断出的 latent action 生成， $\hat x_t'$ 用随机采样的 latent action 生成。所有实验都在 $t=4$ 报告这个指标，值越大说明动作的影响越大。
 
 ## 关键实验与证据
 
@@ -132,7 +132,7 @@ $$\Delta_t\text{PSNR}=\text{PSNR}(x_t,\hat x_t)-\text{PSNR}(x_t,\hat x_t')$$
 流程：
 1. 用冻结的 Platformers LAM 给 CoinRun 专家视频打 latent action 标签，专家视频来自 R2D2 策略。
 2. 训练 BC 策略 $\pi(a_t\mid x_t)$ 预测这些 latent action。
-3. 用少量带真实动作的专家样本建一个字典 $D:a\mapsto\{u\}$，把 latent action 映射到真实动作，执行时 $u_t\sim D[a_t]$。
+3. 用少量带真实动作的专家样本建一个字典 $D:a\mapsto\lbrace u\rbrace$，把 latent action 映射到真实动作，执行时 $u_t\sim D[a_t]$。
 
 结果：只要约 200 个 expert samples，easy 和 hard 两档都能达到 oracle BC（直接用真实动作训练）的水平，且明显高于 random。评估口径是 100 个 samples 中通关关卡的平均百分比，5 个 seed，95% CI（Figure 15 caption）。
 
@@ -182,7 +182,7 @@ Tokenizer 的 batch size（Table 6）：batch 从 64 增到 384，重建 PSNR �
    - Table 2 中 Platformers 那组参数没有对齐（2.3B 对 2.5B）；
    - tokenizer 消融用的是 patch 10，和主模型的 patch 4 不一致；
    - 分辨率只有 160×90。
-6. **算力门槛**：$6.6\times10^{22}$ FLOPs，外加一个无法复现的私有数据集。
+6. **算力门槛**： $6.6\times10^{22}$ FLOPs，外加一个无法复现的私有数据集。
 
 ## 在脉络中的位置
 
@@ -221,7 +221,7 @@ Tokenizer 的 batch size（Table 6）：batch 从 64 增到 384，重建 PSNR �
 ## 复现可行性
 
 - **代码**：官方不开源，也不放权重和数据。社区有 JAX 复现 [Jafar](https://github.com/flairox/jafar)，README 称复现了 Appendix F 的 CoinRun case study，单张 L40S 不到一周可以跑完。
-- **全规模复现不可行**：数据集是私有的 30k 小时游戏视频，dynamics 需要 256 TPUv5p、$6.6\times10^{22}$ FLOPs。
+- **全规模复现不可行**：数据集是私有的 30k 小时游戏视频，dynamics 需要 256 TPUv5p、 $6.6\times10^{22}$ FLOPs。
 
 **论文给出的小规模方案**（Appendix F）
 
@@ -238,7 +238,7 @@ Tokenizer 的 batch size（Table 6）：batch 从 64 增到 384，重建 PSNR �
 1. 算 latent code 和真实动作之间的混淆矩阵 / NMI，把"动作一致性"从图示变成数字；
 2. 报告 $t=4$ 时的 ΔtPSNR；
 3. 做三组消融：
-   - $|A|\in\{2,6,16,64\}$，检验"码字越多有收益、但可玩性下降"（Appendix C.1）；
+   - $|A|\in\lbrace2,6,16,64\rbrace$，检验"码字越多有收益、但可玩性下降"（Appendix C.1）；
    - LAM 用像素输入还是 token 输入（复现 Table 2 的趋势）；
    - 动作用加性嵌入还是拼接。
 
@@ -252,7 +252,7 @@ Tokenizer 的 batch size（Table 6）：batch 从 64 增到 384，重建 PSNR �
 
 ## 自测问题
 
-1. 为什么 LAM 的 decoder 只能看 $\bm x_{1:t}$ 和 $\tilde{\bm a}_{1:t}$？如果把 $|A|$ 从 8 调到 1024，$\tilde a_t$ 会退化成什么？这对"可玩性"意味着什么？
+1. 为什么 LAM 的 decoder 只能看 $\bm x_{1:t}$ 和 $\tilde{\bm a}_ {1:t}$？如果把 $|A|$ 从 8 调到 1024， $\tilde a_t$ 会退化成什么？这对"可玩性"意味着什么？
 2. dynamics model 对 latent action 用了 stop-gradient。如果去掉它，dynamics 的交叉熵 loss 会怎样反过来塑造 LAM，可能出现什么捷径？
 3. 写出 ST-transformer 一个 block 的注意力复杂度，并与全时空注意力比较。结合 Table 3 解释：为什么 C-ViViT 显存更大，FVD 反而更差？
 4. ΔtPSNR 能衡量什么、不能衡量什么？构造一个 ΔtPSNR 很高、但 latent action 在不同 prompt 下语义不一致的情形。

@@ -9,7 +9,7 @@
 
 ## 问题设定
 
-- **目标**：学一个 action-conditioned 的视频 world model $p(o_t\mid h_{t-1},a_{t-1})$。$h_{t-1}$ 是历史帧，$a_{t-1}$ 是一个 temporally extended action（语言指令、机器人低层控制、相机运动都可以），$o_t$ 是接下来的一段视频（帧数可变）。输出只有 RGB 像素，没有状态、奖励和 termination。
+- **目标**：学一个 action-conditioned 的视频 world model $p(o_t\mid h_{t-1},a_{t-1})$。 $h_{t-1}$ 是历史帧， $a_{t-1}$ 是一个 temporally extended action（语言指令、机器人低层控制、相机运动都可以）， $o_t$ 是接下来的一段视频（帧数可变）。输出只有 RGB 像素，没有状态、奖励和 termination。
 - **假设**：环境部分可观测，只用有限历史近似；环境随机性交给扩散采样去表达；奖励不放在 simulator 里，按任务另学 reward model（`source/method.tex` §2.2；随机性的说法见 §3.1）。
 - **之前卡在哪**（`source/related.tex`, `source/introduction.tex`）：
   1. 经典 system identification 和 model-based RL 一般每个系统单独学一个低维状态 dynamics，知识不能跨系统共享。像素级 world model（Dreamer、IRIS 等）大多在游戏或仿真这类视觉简单、数据充足的域里。
@@ -37,9 +37,9 @@
 
 **3. 扩散参数化**
 训练损失（`source/method.tex`，未编号的 equation*）：
-$$\mathcal{L}_{\text{MSE}}=\Big\|\epsilon-\epsilon_\theta\big(\sqrt{1-\beta^{(k)}}\,o_t+\sqrt{\beta^{(k)}}\,\epsilon,\;k\,\big|\,h_{t-1},a_{t-1}\big)\Big\|^2,\quad \epsilon\sim\mathcal N(0,I)$$
+$$\mathcal{L}_ {\text{MSE}}=\Big\Vert\epsilon-\epsilon_\theta\big(\sqrt{1-\beta^{(k)}}\thinspace o_t+\sqrt{\beta^{(k)}}\thinspace\epsilon,\thickspace k\thinspace\big|\thinspace h_{t-1},a_{t-1}\big)\Big\Vert^2,\quad \epsilon\sim\mathcal N(0,I)$$
 动作用 classifier-free guidance 注入（`source/method.tex` Eq.1）。这里只对动作做 guidance，历史始终作为输入：
-$$\tilde\epsilon_\theta(o_t^{(k)},k\mid h_{t-1},a_{t-1})=(1+\eta)\,\epsilon_\theta(o_t^{(k)},k\mid h_{t-1},a_{t-1})-\eta\,\epsilon_\theta(o_t^{(k)},k\mid h_{t-1})$$
+$$\tilde\epsilon_\theta(o_t^{(k)},k\mid h_{t-1},a_{t-1})=(1+\eta)\thinspace\epsilon_\theta(o_t^{(k)},k\mid h_{t-1},a_{t-1})-\eta\thinspace\epsilon_\theta(o_t^{(k)},k\mid h_{t-1})$$
 $\eta$ 控制动作条件强度。原文左右两边用的是同一个符号，第二项写成了 $o_t$，这是记号笔误，我这里改写成 $\tilde\epsilon$。反向采样（`source/method.tex` Eq.2）：
 $$o_t^{(k-1)}=\alpha^{(k)}\big(o_t^{(k)}-\gamma^{(k)}\epsilon_\theta(o_t^{(k)},k\mid h_{t-1},a_{t-1})\big)+\xi,\quad \xi\sim\mathcal N(0,\sigma_k^2I)$$
 初始 $o_t^{(K)}\sim\mathcal N(0,I)$，并且和历史帧**按通道拼接**。论文没写训练时丢弃动作条件的概率（这是 CFG 的无条件分支需要的）。
@@ -52,10 +52,10 @@ $$o_t^{(k-1)}=\alpha^{(k)}\big(o_t^{(k)}-\gamma^{(k)}\epsilon_\theta(o_t^{(k)},k
 
 **5. 三种下游用法**（`source/experiment.tex` + 附录 D）
 - **Hindsight relabeling 训练长程 VLM 策略**：在 UniSim 里每条轨迹串 3–5 个脚本化语言指令做 rollout，共得到 10k 条长程轨迹。用末帧当 goal image，用串起来的指令当监督，微调 PaLM-E 12B（加 goal image 输入），耗时 64 TPUv3 × 1 天。执行时按 UniPi 方式：VLM 输出指令，UniSim 生成 16 帧视频，再由单独训练的 inverse dynamics model 反推低层动作。评测指标 RDG（`source/experiment.tex` Eq.3）：
-$$\mathrm{RDG}=\frac{\|s_0-s_{\text{goal}}\|_2-\|s_T-s_{\text{goal}}\|_2}{\|s_0-s_{\text{goal}}\|_2}$$
+$$\mathrm{RDG}=\frac{\Vert s_0-s_{\text{goal}}\Vert_2-\Vert s_T-s_{\text{goal}}\Vert_2}{\Vert s_0-s_{\text{goal}}\Vert_2}$$
 - **RL 训练低层 VLA**：分两个阶段。Stage 1 用 BC 微调 PaLI 3B，同时训"剩余步数预测" $d(o,g)$ 和"指令预测"（lr 1e-3，batch 128，300k 步）。Stage 2 复制一份 Stage 1 checkpoint 并冻结，作为 reward model，奖励定义为
 $$r(o_t,a_t,o_{t+1},g)=-\big[d(o_{t+1},g)-d(o_t,g)\big]\cdot\mathcal C,\quad \mathcal C=0.05$$
-被训练的策略同样从 Stage 1 checkpoint 初始化（冻结的只是 reward model 那份副本），用 REINFORCE 更新：$\nabla_\pi\mathcal L=\nabla_\pi\log\pi(a_t\mid o_t,g)\sum_{i=t}^{T}\gamma^{i-t}r_i$，其中 $r_i=r(o_i,a_i,o_{i+1},g)$。环境这一侧，把 UniSim 推理包装成 RPC，再套进 DM Env API 的 `step()`。Table 7 的设置：64 个 actor，每个 episode 最多 100 步，$\gamma=0.9$，图像历史 2 帧，learner batch 64，框架为 ACME。actor 做了限速，避免数据太 off-policy。论文没提 baseline 或 critic。
+被训练的策略同样从 Stage 1 checkpoint 初始化（冻结的只是 reward model 那份副本），用 REINFORCE 更新： $\nabla_\pi\mathcal L=\nabla_\pi\log\pi(a_t\mid o_t,g)\sum_{i=t}^{T}\gamma^{i-t}r_i$，其中 $r_i=r(o_i,a_i,o_{i+1},g)$。环境这一侧，把 UniSim 推理包装成 RPC，再套进 DM Env API 的 `step()`。Table 7 的设置：64 个 actor，每个 episode 最多 100 步， $\gamma=0.9$，图像历史 2 帧，learner batch 64，框架为 ACME。actor 做了限速，避免数据太 off-policy。论文没提 baseline 或 critic。
 - **合成数据训练 video captioning**：对 ActivityNet Captions 训练集的 30,740 条文本，每条生成 4 段视频，用来微调 PaLI-X 55B。
 
 ## 关键实验与证据
@@ -93,7 +93,7 @@ $$r(o_t,a_t,o_{t+1},g)=-\big[d(o_{t+1},g)-d(o_t,g)\big]\cdot\mathcal C,\quad \ma
 
 ## 前置知识
 
-1. DDPM（$\epsilon$-prediction、反向采样）与 classifier-free guidance
+1. DDPM（ $\epsilon$-prediction、反向采样）与 classifier-free guidance
 2. 视频扩散：3D U-Net、时空交替 attention、级联超分（Imagen Video）
 3. World model / model-based RL（Dyna、Dreamer 的 imagination），以及 POMDP 下的历史条件
 4. REINFORCE 策略梯度；基于势函数差的 reward shaping

@@ -21,17 +21,17 @@ PPO 把 TRPO 的 KL 硬约束换成对概率比 $r_t(\theta)=\pi_\theta/\pi_{\th
 
 **① 从 PG 到 surrogate。** 常用的梯度估计量与对应 loss（Eq. 1、2）：
 
-$$\hat g=\hat{\mathbb E}_t\big[\nabla_\theta\log\pi_\theta(a_t|s_t)\hat A_t\big],\qquad L^{PG}(\theta)=\hat{\mathbb E}_t\big[\log\pi_\theta(a_t|s_t)\hat A_t\big]$$
+$$\hat g=\hat{\mathbb E}_ t\big[\nabla_\theta\log\pi_\theta(a_t|s_t)\hat A_t\big],\qquad L^{PG}(\theta)=\hat{\mathbb E}_ t\big[\log\pi_\theta(a_t|s_t)\hat A_t\big]$$
 
-TRPO 的做法（Eq. 3–4）是 $\max_\theta \hat{\mathbb E}_t[r_t(\theta)\hat A_t]$，约束为 $\hat{\mathbb E}_t[\mathrm{KL}[\pi_{\theta_{old}}(\cdot|s_t),\pi_\theta(\cdot|s_t)]]\le\delta$。把目标记为 CPI surrogate（Eq. 6，出自 conservative policy iteration [KL02]）：
+TRPO 的做法（Eq. 3–4）是 $\max_\theta \hat{\mathbb E}_ t[r_t(\theta)\hat A_t]$，约束为 $\hat{\mathbb E}_ t[\mathrm{KL}[\pi_{\theta_{old}}(\cdot|s_t),\pi_\theta(\cdot|s_t)]]\le\delta$。把目标记为 CPI surrogate（Eq. 6，出自 conservative policy iteration [KL02]）：
 
-$$L^{CPI}(\theta)=\hat{\mathbb E}_t\Big[\tfrac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}\hat A_t\Big]=\hat{\mathbb E}_t[r_t(\theta)\hat A_t]$$
+$$L^{CPI}(\theta)=\hat{\mathbb E}_ t\Big[\tfrac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{old}}(a_t|s_t)}\hat A_t\Big]=\hat{\mathbb E}_ t[r_t(\theta)\hat A_t]$$
 
-白板上可以补一步（我的推导，不在论文里）：$\nabla_\theta r_t=r_t\nabla_\theta\log\pi_\theta$，而在 $\theta_{old}$ 处 $r_t=1$，所以 $\nabla L^{CPI}|_{\theta_{old}}=\nabla L^{PG}|_{\theta_{old}}$。也就是说第一步梯度与 vanilla PG 相同。ratio 的作用是：$\theta$ 离开 $\theta_{old}$ 后，仍能用旧策略的样本做 importance-weighted 估计，这就是能复用数据的原因。它的问题是没有约束，$L^{CPI}$ 会推动过大的更新。
+白板上可以补一步（我的推导，不在论文里）： $\nabla_\theta r_t=r_t\nabla_\theta\log\pi_\theta$，而在 $\theta_{old}$ 处 $r_t=1$，所以 $\nabla L^{CPI}|_ {\theta_{old}}=\nabla L^{PG}|_ {\theta_{old}}$。也就是说第一步梯度与 vanilla PG 相同。ratio 的作用是： $\theta$ 离开 $\theta_{old}$ 后，仍能用旧策略的样本做 importance-weighted 估计，这就是能复用数据的原因。它的问题是没有约束， $L^{CPI}$ 会推动过大的更新。
 
 **② Clipped surrogate objective（Eq. 7，本文核心）。**
 
-$$L^{CLIP}(\theta)=\hat{\mathbb E}_t\Big[\min\big(r_t(\theta)\hat A_t,\ \mathrm{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat A_t\big)\Big],\quad \epsilon=0.2\ \text{(文中示例值)}$$
+$$L^{CLIP}(\theta)=\hat{\mathbb E}_ t\Big[\min\big(r_t(\theta)\hat A_t,\ \mathrm{clip}(r_t(\theta),1-\epsilon,1+\epsilon)\hat A_t\big)\Big],\quad \epsilon=0.2\ \text{(文中示例值)}$$
 
 按 $\hat A$ 的符号逐项看（对应 Figure 1 的两张图）：
 
@@ -40,27 +40,27 @@ $$L^{CLIP}(\theta)=\hat{\mathbb E}_t\Big[\min\big(r_t(\theta)\hat A_t,\ \mathrm{
 | $\hat A>0$ | $\min(r,1+\epsilon)\hat A$ | $r>1+\epsilon$：已经足够提高该动作概率，不再奖励 |
 | $\hat A<0$ | $\max(r,1-\epsilon)\hat A$ | $r<1-\epsilon$：已经足够压低该动作概率，不再奖励 |
 
-关键在于 min 的**不对称性**。只有当比值变化让目标"更好"时才被截断；如果比值往坏的方向走（例如 $\hat A>0$ 却 $r<1-\epsilon$），用的是未截断项，梯度仍然会把它拉回来。所以 $L^{CLIP}$ 是 $L^{CPI}$ 的 pessimistic lower bound，并且在 $r=1$ 处与 $L^{CPI}$ 一阶相等（§3）。Figure 2 给出直观证据：在 Hopper-v1 的第一次更新中沿更新方向插值，$L^{CPI}$ 单调上升，$L^{CLIP}$ 在更新后的参数处达到最大，此时 KL 约为 0.02。clip 相当于一个隐式的 trust region。
+关键在于 min 的**不对称性**。只有当比值变化让目标"更好"时才被截断；如果比值往坏的方向走（例如 $\hat A>0$ 却 $r<1-\epsilon$），用的是未截断项，梯度仍然会把它拉回来。所以 $L^{CLIP}$ 是 $L^{CPI}$ 的 pessimistic lower bound，并且在 $r=1$ 处与 $L^{CPI}$ 一阶相等（§3）。Figure 2 给出直观证据：在 Hopper-v1 的第一次更新中沿更新方向插值， $L^{CPI}$ 单调上升， $L^{CLIP}$ 在更新后的参数处达到最大，此时 KL 约为 0.02。clip 相当于一个隐式的 trust region。
 
-**③ 备选：Adaptive KL penalty（§4，Eq. 8）。** 目标为 $L^{KLPEN}=\hat{\mathbb E}_t[r_t\hat A_t-\beta\,\mathrm{KL}[\pi_{\theta_{old}},\pi_\theta]]$。每次更新后计算 $d=\hat{\mathbb E}_t[\mathrm{KL}]$：若 $d<d_{targ}/1.5$，令 $\beta\leftarrow\beta/2$；若 $d>1.5\,d_{targ}$，令 $\beta\leftarrow2\beta$。1.5 和 2 是启发式取值，作者说对它们不敏感。作者明确表示这一变体比 clip 差，保留它只是作为重要 baseline。
+**③ 备选：Adaptive KL penalty（§4，Eq. 8）。** 目标为 $L^{KLPEN}=\hat{\mathbb E}_ t[r_t\hat A_t-\beta\thinspace\mathrm{KL}[\pi_{\theta_{old}},\pi_\theta]]$。每次更新后计算 $d=\hat{\mathbb E}_ t[\mathrm{KL}]$：若 $d<d_{targ}/1.5$，令 $\beta\leftarrow\beta/2$；若 $d>1.5\thinspace d_{targ}$，令 $\beta\leftarrow2\beta$。1.5 和 2 是启发式取值，作者说对它们不敏感。作者明确表示这一变体比 clip 差，保留它只是作为重要 baseline。
 
 **④ 完整 actor-critic 目标（Eq. 9）。** policy 与 value 共享参数时：
 
-$$L_t^{CLIP+VF+S}(\theta)=\hat{\mathbb E}_t\big[L_t^{CLIP}(\theta)-c_1L_t^{VF}(\theta)+c_2S[\pi_\theta] (s_t)\big],\quad L_t^{VF}=(V_\theta(s_t)-V_t^{targ})^2$$
+$$L_t^{CLIP+VF+S}(\theta)=\hat{\mathbb E}_ t\big[L_t^{CLIP}(\theta)-c_1L_t^{VF}(\theta)+c_2S[\pi_\theta] (s_t)\big],\quad L_t^{VF}=(V_\theta(s_t)-V_t^{targ})^2$$
 
 $S$ 是 entropy bonus。论文没有写 $V_t^{targ}$ 的具体定义；常见实现（如 baselines）取 $\hat A_t+V_{old}(s_t)$，这一点不来自本文。
 
-**⑤ Truncated GAE（Eq. 11–12）。** 每个 actor 跑 $T$ 步（$T\ll$ episode 长度），advantage 只看这 $T$ 步：
+**⑤ Truncated GAE（Eq. 11–12）。** 每个 actor 跑 $T$ 步（ $T\ll$ episode 长度），advantage 只看这 $T$ 步：
 
 $$\delta_t=r_t+\gamma V(s_{t+1})-V(s_t),\qquad \hat A_t=\sum_{l=0}^{T-t-1}(\gamma\lambda)^l\delta_{t+l}$$
 
 $\lambda=1$ 时退化成 A3C 的 $n$-step 估计量（Eq. 10）。**注意 PDF 的笔误**：Eq. 10 和 Eq. 11 最后一项的指数印成了 $T-t+1$，按求和结构应为 $T-t-1$。实现时一般写成反向递推 $\hat A_t=\delta_t+\gamma\lambda\hat A_{t+1}$（等价改写）。
 
-**⑥ 训练循环（Algorithm 1）。** 每个 iteration：$N$ 个并行 actor 各用 $\pi_{\theta_{old}}$ 采 $T$ 步 → 计算 $\hat A_1..\hat A_T$ → 在这 $NT$ 个样本上以 minibatch 大小 $M\le NT$ 做 $K$ 个 epoch 的 Adam → $\theta_{old}\leftarrow\theta$。相对 vanilla PG，只需把 loss 从 $L^{PG}$ 换成 $L^{CLIP}$ 或 $L^{KLPEN}$（§5）。推理时只用 $\pi_\theta$；value 网络和 clip 都只在训练中起作用。
+**⑥ 训练循环（Algorithm 1）。** 每个 iteration： $N$ 个并行 actor 各用 $\pi_{\theta_{old}}$ 采 $T$ 步 → 计算 $\hat A_1..\hat A_T$ → 在这 $NT$ 个样本上以 minibatch 大小 $M\le NT$ 做 $K$ 个 epoch 的 Adam → $\theta_{old}\leftarrow\theta$。相对 vanilla PG，只需把 loss 从 $L^{PG}$ 换成 $L^{CLIP}$ 或 $L^{KLPEN}$（§5）。推理时只用 $\pi_\theta$；value 网络和 clip 都只在训练中起作用。
 
 ## 关键实验与证据
 
-**1. Surrogate 消融（§6.1，Table 1）。** 7 个 MuJoCo `-v1` 任务（HalfCheetah、Hopper、InvertedDoublePendulum、InvertedPendulum、Reacher、Swimmer、Walker2d），每个训练 1M timesteps，3 个 seed。评分方式：每个 run 取最后 100 个 episode 的平均回报，按环境归一化（随机策略记 0，最好结果记 1），再对 21 个 run 取平均。策略网络为 MLP 2×64、tanh，输出高斯均值，std 为 "variable standard deviations"（沿用 [Sch+15b; Dua+16]）；policy 与 value 不共享参数，也不加 entropy bonus。其余超参见 Table 3：$T=2048$，Adam $3\times10^{-4}$，10 epochs，minibatch 64，$\gamma=0.99$，$\lambda=0.95$。
+**1. Surrogate 消融（§6.1，Table 1）。** 7 个 MuJoCo `-v1` 任务（HalfCheetah、Hopper、InvertedDoublePendulum、InvertedPendulum、Reacher、Swimmer、Walker2d），每个训练 1M timesteps，3 个 seed。评分方式：每个 run 取最后 100 个 episode 的平均回报，按环境归一化（随机策略记 0，最好结果记 1），再对 21 个 run 取平均。策略网络为 MLP 2×64、tanh，输出高斯均值，std 为 "variable standard deviations"（沿用 [Sch+15b; Dua+16]）；policy 与 value 不共享参数，也不加 entropy bonus。其余超参见 Table 3： $T=2048$，Adam $3\times10^{-4}$，10 epochs，minibatch 64， $\gamma=0.99$， $\lambda=0.95$。
 
 | 变体 | avg. normalized score |
 |---|---|
@@ -73,9 +73,9 @@ $\lambda=1$ 时退化成 A3C 的 $n$-step 估计量（Eq. 10）。**注意 PDF �
 
 **2. 与其他算法比较（§6.2，Figure 3）。** 对比对象为 TRPO、CEM、adaptive-stepsize vanilla PG、A2C、A2C + trust region（ACER 式），都是调过的实现，PPO 用 $\epsilon=0.2$。论文原话是 PPO "outperforms the previous methods on almost all"。放大图后可见：HalfCheetah、Walker2d、Reacher 上 PPO 明显领先；Swimmer 上 TRPO 的最终曲线高于 PPO；Hopper 上 PPO、TRPO、vanilla PG 末端接近。论文没有给出这张图的数值表。
 
-**3. 高维展示（§6.3，Figure 4/5，Table 4）。** Roboschool 3D humanoid 任务：前进（训练 50M timesteps）、Flagrun（目标每 200 步或到达后随机换位，训练 100M）、FlagrunHarder（被方块砸、需要爬起来，训练 100M）。超参：$T=512$，15 epochs，minibatch 4096，actors 32（locomotion）/ 128（flagrun），log std 从 −0.7 线性退火到 −1.6。**Adam stepsize 按 KL 目标值自适应调节**（Table 4 caption，具体目标值未给）。这一部分只有 PPO 的学习曲线，没有 baseline。
+**3. 高维展示（§6.3，Figure 4/5，Table 4）。** Roboschool 3D humanoid 任务：前进（训练 50M timesteps）、Flagrun（目标每 200 步或到达后随机换位，训练 100M）、FlagrunHarder（被方块砸、需要爬起来，训练 100M）。超参： $T=512$，15 epochs，minibatch 4096，actors 32（locomotion）/ 128（flagrun），log std 从 −0.7 线性退火到 −1.6。**Adam stepsize 按 KL 目标值自适应调节**（Table 4 caption，具体目标值未给）。这一部分只有 PPO 的学习曲线，没有 baseline。
 
-**4. Atari（§6.4，Table 2/5/6，Figure 6）。** 49 个游戏，40M frames（10M timesteps），3 个 trial，对手是调过的 A2C 和 ACER，三者网络结构相同，都沿用 [Mni+16]。PPO 超参见 Table 5：8 actors，$T=128$，3 epochs，minibatch 32×8，Adam $2.5\times10^{-4}\times\alpha$，clip $0.1\times\alpha$，$\alpha$ 从 1 线性退火到 0，$c_1=1$，$c_2=0.01$。Table 2 统计各算法"赢"的游戏数：
+**4. Atari（§6.4，Table 2/5/6，Figure 6）。** 49 个游戏，40M frames（10M timesteps），3 个 trial，对手是调过的 A2C 和 ACER，三者网络结构相同，都沿用 [Mni+16]。PPO 超参见 Table 5：8 actors， $T=128$，3 epochs，minibatch 32×8，Adam $2.5\times10^{-4}\times\alpha$，clip $0.1\times\alpha$， $\alpha$ 从 1 线性退火到 0， $c_1=1$， $c_2=0.01$。Table 2 统计各算法"赢"的游戏数：
 
 | 口径 | A2C | ACER | PPO | Tie |
 |---|---|---|---|---|
@@ -96,7 +96,7 @@ $\lambda=1$ 时退化成 A3C 的 $n$-step 估计量（Eq. 10）。**注意 PDF �
 
 ## 在脉络中的位置
 
-- **前驱**：REINFORCE [Wil92]；conservative policy iteration [KL02]（$L^{CPI}$ 的来源）；TRPO [Sch+15b]（surrogate 加 KL 约束）；GAE [Sch+15a]；A3C/A2C [Mni+16]（多 actor、$T$ 步截断）；ACER [Wan+16]。同期工作 Heess et al. [Hee+17] 用 adaptive-KL 版 PPO 学习 3D locomotion。系统背景见 [RL overview](../survey-rl-overview/notes.md)。
+- **前驱**：REINFORCE [Wil92]；conservative policy iteration [KL02]（ $L^{CPI}$ 的来源）；TRPO [Sch+15b]（surrogate 加 KL 约束）；GAE [Sch+15a]；A3C/A2C [Mni+16]（多 actor、 $T$ 步截断）；ACER [Wan+16]。同期工作 Heess et al. [Hee+17] 用 adaptive-KL 版 PPO 学习 3D locomotion。系统背景见 [RL overview](../survey-rl-overview/notes.md)。
 - **后继 / 影响**：
   - **sim-to-real locomotion 的默认优化器**：[legged_gym](../../03_real2sim2real/legged-gym/notes.md) 是大规模并行 PPO，并且用了"按 KL 自适应学习率"（desired KL 0.01），与本文 Table 4 按 KL 目标调 Adam stepsize 的做法一致（legged_gym 自己注明参照的是 Heess et al. [Hee+17]）；[RMA](../../03_real2sim2real/rma/notes.md) Phase 1、[ASAP](../../03_real2sim2real/asap/notes.md) 的 tracking policy 和 delta action model 用的都是 PPO；[RialTo](../../03_real2sim2real/rialto/notes.md) 在 digital twin 里做 PPO + BC fine-tuning。
   - **生成式策略 / VLA 的 RL fine-tuning**：[DPPO](../dppo/notes.md) 把去噪链看成内层 MDP，再套用 PPO；[π_RL](../pi-rl/notes.md) 为 flow VLA 构造可计算的 log-likelihood，使 PPO/GRPO 能够使用。
@@ -112,7 +112,7 @@ $\lambda=1$ 时退化成 A3C 的 $n$-step 估计量（Eq. 10）。**注意 PDF �
 2. Policy gradient theorem 与 REINFORCE，以及 baseline 为什么能降低方差。
 3. Importance sampling 与 on-policy / off-policy 的区别，也就是为什么 ratio 能让旧数据估计新策略的目标。
 4. TRPO：KL trust region、CPI surrogate、共轭梯度加 line search 的动机（读本文前建议先读 TRPO §3–6）。
-5. GAE：$\lambda$ 在偏差与方差之间的权衡，TD residual $\delta_t$。
+5. GAE： $\lambda$ 在偏差与方差之间的权衡，TD residual $\delta_t$。
 6. Actor-critic 与 A2C/A3C 的并行采样；Adam；entropy regularization。
 
 ## 复现可行性
@@ -123,14 +123,14 @@ $\lambda=1$ 时退化成 A3C 的 $n$-step 估计量（Eq. 10）。**注意 PDF �
 - **最小可复现实验**（对应 Table 1 与 Figure 2）：
   1. 在 Hopper 和 HalfCheetah（现代 MuJoCo 版本）上跑三组：{no clip/penalty、clip $\epsilon=0.2$、adaptive KL $d_{targ}=0.01$}，各 3 个 seed，1M 步。严格使用 Table 3 超参，MLP 2×64 tanh，policy/value 分离，不加 entropy。
   2. 指标：最后 100 个 episode 的平均回报；每次更新记录 approx-KL 和 $|r-1|>\epsilon$ 的样本比例。
-  3. 在第一次更新时复现 Figure 2：沿 $\theta_{old}\to\theta_{new}$ 插值，画出 $L^{CPI}$、$L^{CLIP}$、KL 三条曲线。
-  4. 预期在定性上复现：不加约束时 HalfCheetah 会崩；$L^{CLIP}$ 在更新点附近达到峰值。
+  3. 在第一次更新时复现 Figure 2：沿 $\theta_{old}\to\theta_{new}$ 插值，画出 $L^{CPI}$、 $L^{CLIP}$、KL 三条曲线。
+  4. 预期在定性上复现：不加约束时 HalfCheetah 会崩； $L^{CLIP}$ 在更新点附近达到峰值。
 - **预计难点**：未写入论文的 code-level trick 会显著影响结果，需要逐项开关做对照；3 个 seed 方差很大；环境版本不同导致无法对齐绝对数值；GAE 公式的指数笔误可能误导手写实现。
 
 ## 自测问题
 
-1. 设 $\epsilon=0.2$、$\hat A_t=-1$。当 $r_t=1.5$ 和 $r_t=0.7$ 时，该样本对 $\theta$ 的梯度分别是否为 0？为什么说 min 只在"变好"的方向上截断？
+1. 设 $\epsilon=0.2$、 $\hat A_t=-1$。当 $r_t=1.5$ 和 $r_t=0.7$ 时，该样本对 $\theta$ 的梯度分别是否为 0？为什么说 min 只在"变好"的方向上截断？
 2. 证明 $L^{CLIP}$ 与 $L^{CPI}$ 在 $\theta_{old}$ 处一阶相等，并说明 PPO 第一个 minibatch 的梯度与 vanilla PG 有什么关系。那么 clip 究竟在第几步开始起作用？
 3. 为什么在 $L^{PG}$ 上对同一批数据做多个 epoch 是"not well-justified"的，而 $L^{CPI}$ 加上 clip 就可以？clip 能否保证 $\mathrm{KL}\le\delta$？
-4. 从 Eq. 11–12 推出 $\lambda=1$ 时的 Eq. 10，并指出 PDF 中指数的笔误。$\lambda$ 从 0 变到 1 时，偏差和方差分别怎样变化？
+4. 从 Eq. 11–12 推出 $\lambda=1$ 时的 Eq. 10，并指出 PDF 中指数的笔误。 $\lambda$ 从 0 变到 1 时，偏差和方差分别怎样变化？
 5. TRPO 为什么难以处理 policy/value 参数共享或 dropout？PPO 的 Eq. 9 是如何处理的？在 learned world model 里训练策略时，PPO 与 Dreamer 的 actor 梯度在"对模型的要求"上有什么根本区别？

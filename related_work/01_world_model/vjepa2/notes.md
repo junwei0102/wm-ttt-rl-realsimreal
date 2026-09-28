@@ -22,7 +22,7 @@
 
 **Stage 1：V-JEPA 2 预训练（mask-denoising in representation space）**（`source/main.tex` Eq.1）
 
-$$\min_{\theta,\phi,\Delta_y}\ \big\| P_\phi(\Delta_y, E_\theta(x)) - \mathrm{sg}\big(E_{\bar\theta}(y)\big)\big\|_1$$
+$$\min_{\theta,\phi,\Delta_y}\ \big\Vert P_\phi(\Delta_y, E_\theta(x)) - \mathrm{sg}\big(E_{\bar\theta}(y)\big)\big\Vert_1$$
 
 - 整段视频记作 $y$，按 multiblock masking 丢掉一部分 token 后得到 $x$。编码器 $E_\theta$ 只处理可见 token。predictor $P_\phi$ 在被丢位置放入可学习的 mask token $\Delta_y$，预测这些位置的表征。target 由 EMA 编码器 $E_{\bar\theta}$ 加 stop-gradient 给出，loss 只算 masked patch。防止 representation collapse 靠 EMA 加 sg，既不用负样本，也不做像素重建。
 - **为什么不预测像素**：JEPA 只需要预测"可预测的部分"（比如物体运动轨迹），可以忽略不可预测的细节（比如每片草叶的位置）（Sec.1）。
@@ -40,23 +40,23 @@ $$\min_{\theta,\phi,\Delta_y}\ \big\| P_\phi(\Delta_y, E_\theta(x)) - \mathrm{sg
 
 **Stage 2：V-JEPA 2-AC（动作条件 latent world model）**
 
-- 冻结 ViT-g 编码器，每帧**单独**编码：$z_k=E(x_k)\in\mathbb{R}^{16\times16\times1408}$。
-- predictor 约 300M，是 24 层、16 头、hidden 1024 的 transformer。$a$、$s$、$z$ 各自经过一个 affine 层映射进来。patch token 用 3D-RoPE，action/pose token 只加 temporal RoPE。
+- 冻结 ViT-g 编码器，每帧**单独**编码： $z_k=E(x_k)\in\mathbb{R}^{16\times16\times1408}$。
+- predictor 约 300M，是 24 层、16 头、hidden 1024 的 transformer。 $a$、 $s$、 $z$ 各自经过一个 affine 层映射进来。patch token 用 3D-RoPE，action/pose token 只加 temporal RoPE。
 - 输入按时间交错排成 $(a_k,s_k,z_k)$，用 **block-causal attention**：第 $k$ 步的 patch token 能看到同一步和之前各步的 action、state、patch（Sec.3.1 Architecture）。
-- **Teacher-forcing loss**（Eq.2，$T=15$）：
+- **Teacher-forcing loss**（Eq.2， $T=15$）：
 
-$$\mathcal{L}_{\text{tf}}(\phi)=\frac{1}{T}\sum_{k=1}^{T}\Big\|P_\phi\big((a_t,s_t,E(x_t))_{t\le k}\big)-E(x_{k+1})\Big\|_1$$
+$$\mathcal{L}_ {\text{tf}}(\phi)=\frac{1}{T}\sum_{k=1}^{T}\Big\Vert P_\phi\big((a_t,s_t,E(x_t))_ {t\le k}\big)-E(x_{k+1})\Big\Vert_1$$
 
 - **Rollout loss**（Eq.3）：把 predictor 的输出回填为下一步输入，自回归 rollout 之后再和真实表征对齐。实际取 $T=2$，也就是只对一步 recurrent 反传：
 
-$$\mathcal{L}_{\text{rollout}}(\phi)=\big\|P_\phi(a_{1:T},s_1,z_1)-z_{T+1}\big\|_1,\qquad L(\phi)=\mathcal{L}_{\text{tf}}+\mathcal{L}_{\text{rollout}}\ \text{(Eq.4)}$$
+$$\mathcal{L}_ {\text{rollout}}(\phi)=\big\Vert P_\phi(a_{1:T},s_1,z_1)-z_{T+1}\big\Vert_1,\qquad L(\phi)=\mathcal{L}_ {\text{tf}}+\mathcal{L}_ {\text{rollout}}\ \text{(Eq.4)}$$
 
   编码器冻结、只训 predictor，所以这一阶段不需要 EMA target。
 - **训练超参**（App.B.1）：AdamW，weight decay 0.04，batch 256。学习率从 7.5e-5 warmup 到 4.25e-4（4500 iter），保持 85500 iter，再用 4500 iter 衰减到 0。只用左视角；左右视角混训而不加相机条件时性能会下降。
 
 **推理：goal-conditioned energy 加 CEM-MPC**（Eq.5）
 
-$$\mathcal{E}(\hat a_{1:T};z_k,s_k,z_g)=\big\|P(\hat a_{1:T};s_k,z_k)-z_g\big\|_1,\qquad a^\star_{1:T}=\arg\min_{\hat a_{1:T}}\mathcal{E}$$
+$$\mathcal{E}(\hat a_{1:T};z_k,s_k,z_g)=\big\Vert P(\hat a_{1:T};s_k,z_k)-z_g\big\Vert_1,\qquad a^\star_{1:T}=\arg\min_{\hat a_{1:T}}\mathcal{E}$$
 
 - CEM 的做法：
   1. 每个 horizon 步的动作坐标从 $\mathcal{N}(0,I)$ 初始化的高斯里采样；
@@ -92,10 +92,10 @@ $$\mathcal{E}(\hat a_{1:T};z_k,s_k,z_g)=\big\|P(\hat a_{1:T};s_k,z_k)-z_g\big\|_
 **编码器质量**（它决定了 AC 能用到哪些状态信息）
 
 - **分类**（Table 4，attentive probe）：
-  - ViT-g 平均 87.5，ViT-g$_{384}$ 平均 88.2。
-  - SSv2 达到 77.3；同协议下 InternVideo2$_{s2}$-1B 69.7，PE$_{core}$G 55.4，DINOv2 50.7。
+  - ViT-g 平均 87.5， $\text{ViT-g}_ {384}$ 平均 88.2。
+  - SSv2 达到 77.3；同协议下 $\text{InternVideo2}_ {s2}$-1B 69.7， $\text{PE}_ {core}$ G 55.4，DINOv2 50.7。
   - 外观类任务只是有竞争力，不是最好：IN1K 85.1，SigLIP2 为 88.0。
-- **EK100 action anticipation**（Table 5）：Recall@5 从 ViT-L 32.7 升到 ViT-g 38.0，ViT-g$_{384}$ 为 39.7。相比 PlausiVL 的 27.6 高 12.1，相对提升 44%。
+- **EK100 action anticipation**（Table 5）：Recall@5 从 ViT-L 32.7 升到 ViT-g 38.0， $\text{ViT-g}_ {384}$ 为 39.7。相比 PlausiVL 的 27.6 高 12.1，相对提升 44%。
 - **关键消融**（Table 20）：只用 encoder 39.1，只用 predictor 20.2，两者一起 39.7。作者的结论是 EK100 主要考语义理解，而不是 forecasting。
 - **VidQA**：
   - Table 6：冻结编码器、Qwen2-7B、18M 对齐数据，平均 52.3，高于 PE 49.1、SigLIP2 48.1、DINOv2 45.7。
@@ -171,7 +171,7 @@ $$\mathcal{E}(\hat a_{1:T};z_k,s_k,z_g)=\big\|P(\hat a_{1:T};s_k,z_k)-z_g\big\|_
 **已开源的部分**
 
 - 仓库 https://github.com/facebookresearch/vjepa2 可访问（2026-09-27 查 README 确认；本小节的仓库信息都来自 README，不来自论文），大部分代码是 MIT 许可，部分文件另有 Apache 2.0 等许可。
-- 放出了 ViT-L/H/g/g$_{384}$ 的预训练权重，以及 V-JEPA 2-AC 权重（torch hub 名 `vjepa2_ac_vit_giant`）。
+- 放出了 $\text{ViT-L/H/g/g}_ {384}$ 的预训练权重，以及 V-JEPA 2-AC 权重（torch hub 名 `vjepa2_ac_vit_giant`）。
 - 有预训练和后训练代码。AC 后训练的配置是 `configs/train/vitg16/droid-256px-8f.yaml`，另有 `notebooks/energy_landscape_example.ipynb`。
 - 依赖 PyTorch、timm、einops、decord（README 写明 decord 不支持 macOS，建议换 eva-decord 或 decord2）。
 - 仓库 README 里没看到 CEM 真机规划脚本，也没有 Droid 预处理说明。

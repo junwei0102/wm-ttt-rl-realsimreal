@@ -5,11 +5,11 @@
 
 ## 一句话
 
-对于最后一层是线性、无 bias 的 TTT-KVB 层（inner loop 以 key 为输入、以 value 为目标做绑定损失的 TTT），最后一层权重每走一步梯度下降，都只是加上一个外积 $\phi(k)^\top g$。因此把 inner loop 展开后，输出总能写成 $o_t=\hat q_t\,(S_0+\sum_i\hat k_i^\top\hat v_i)$ 这种 learned linear attention 的形式。作者据此认为，TTT 并不是"测试时记忆"，而是一种带可学习 kernel 的 linear attention，并在这个视角下化简模型、把计算改成并行形式。
+对于最后一层是线性、无 bias 的 TTT-KVB 层（inner loop 以 key 为输入、以 value 为目标做绑定损失的 TTT），最后一层权重每走一步梯度下降，都只是加上一个外积 $\phi(k)^\top g$。因此把 inner loop 展开后，输出总能写成 $o_t=\hat q_t\thinspace(S_0+\sum_i\hat k_i^\top\hat v_i)$ 这种 learned linear attention 的形式。作者据此认为，TTT 并不是"测试时记忆"，而是一种带可学习 kernel 的 linear attention，并在这个视角下化简模型、把计算改成并行形式。
 
 ## 问题设定
 
-- **研究对象**：TTT 作为序列建模层，用来替代 softmax attention，而且只看 **TTT-KVB** 这一支（术语取自 [TTT-E2E](../ttt-e2e/notes.md)）。每层维护 fast weights $f_\theta$，对每个 token 或 chunk 以 $k$ 为输入、$v$ 为目标，做一步在线 GD，损失可以是 MSE，也可以是 Frobenius 内积（dot-product loss）；更新之后，把 $q$ 送进 $f_\theta$ 得到输出（`sections/3.preliminary.tex`）。inner loop 反传任务损失的 TTT-E2E 不在讨论范围内，[用于分布偏移的 TTT](../ttt-self-supervised/notes.md) 也不在。
+- **研究对象**：TTT 作为序列建模层，用来替代 softmax attention，而且只看 **TTT-KVB** 这一支（术语取自 [TTT-E2E](../ttt-e2e/notes.md)）。每层维护 fast weights $f_\theta$，对每个 token 或 chunk 以 $k$ 为输入、 $v$ 为目标，做一步在线 GD，损失可以是 MSE，也可以是 Frobenius 内积（dot-product loss）；更新之后，把 $q$ 送进 $f_\theta$ 得到输出（`sections/3.preliminary.tex`）。inner loop 反传任务损失的 TTT-E2E 不在讨论范围内，[用于分布偏移的 TTT](../ttt-self-supervised/notes.md) 也不在。
 - **主流解释**：storage-and-retrieval。inner loop 把 KV 映射"记住"，query 负责"检索"。沿着这个叙事，后续设计越来越重：更深的 inner MLP、Muon 式优化器、momentum、weight normalization、per-token learning rate（LaCT、ViTTT、Titans、Atlas）。
 - **此前的空白**：[TTT layers](../ttt-layers/notes.md) 只证明了一个特例：单层线性 fast weight、零初始化时，TTT 等价于 linear attention。多层 MLP 或带 momentum 的 TTT 还在不在这个框架里，一直没有讲清楚，所以也说不清"加深 MLP、换优化器"到底改进了什么。另外，现有实现都是逐块递归执行的，训练吞吐受限。
 - **实验载体**：官方 LaCT（760M LLM、114M NVS）和 ViTTT-B（90M，ImageNet-1K）（Appendix A，`sections/appendix.tex`）。
@@ -23,11 +23,11 @@
 - 计算 TTT 输出时用 K 代替 Q：几乎不掉点（Table 1）。
 
 **(2) Theorem 5.1：单步线性化**（`sections/5.ttt_as_linear_attn.tex` §5.1；证明见 `appendix.tex` §B）
-设 $f(x)=\phi(x;\Theta)\,W$，其中 $W\in\mathbb R^{D_h\times D_{out}}$ 线性、无 bias。对 key $k$ 走一步 GD，同时更新 $(W,\Theta)$。按链式法则，$\nabla_{W_t}\mathcal L=\phi_t(k)^\top\,\partial\mathcal L/\partial f_t(k)$，因此
+设 $f(x)=\phi(x;\Theta)\thinspace W$，其中 $W\in\mathbb R^{D_h\times D_{out}}$ 线性、无 bias。对 key $k$ 走一步 GD，同时更新 $(W,\Theta)$。按链式法则， $\nabla_{W_t}\mathcal L=\phi_t(k)^\top\thinspace\partial\mathcal L/\partial f_t(k)$，因此
 
-$$W_{t+1}=W_t+\phi_t(k)^\top g_t(k),\qquad g_t(k)\triangleq-\eta\,\frac{\partial\mathcal L}{\partial f_t(k)}$$
+$$W_{t+1}=W_t+\phi_t(k)^\top g_t(k),\qquad g_t(k)\triangleq-\eta\thinspace\frac{\partial\mathcal L}{\partial f_t(k)}$$
 
-$$o=\phi_{t+1}(q)\big(W_t+\phi_t(k)^\top g_t(k)\big)=\hat q\,(S_0+\hat k^\top\hat v),\quad \hat q=\phi_{t+1}(q),\ \hat k=\phi_t(k),\ \hat v=g_t(k),\ S_0=W_t .$$
+$$o=\phi_{t+1}(q)\big(W_t+\phi_t(k)^\top g_t(k)\big)=\hat q\thinspace(S_0+\hat k^\top\hat v),\quad \hat q=\phi_{t+1}(q),\ \hat k=\phi_t(k),\ \hat v=g_t(k),\ S_0=W_t .$$
 
 整个定理只依赖一件事：线性层对自身权重的梯度一定是"输入 × 上游梯度"的秩 1 外积，而这恰好就是 linear attention 往状态里写入的方式。
 
@@ -35,31 +35,31 @@ $$o=\phi_{t+1}(q)\big(W_t+\phi_t(k)^\top g_t(k)\big)=\hat q\,(S_0+\hat k^\top\ha
 $$o_t=\phi_{t+1}(q_t)\Big(W_0+\sum_{i=0}^{t}\phi_i(k_i)^\top g_i(k_i)\Big).$$
 注意第 $i$ 项用的是当时的 $\Theta_i$。如果 $\Theta$ 也在更新，kernel 本身就随历史变化（论文称之为 dynamic kernel）。
 
-**(4) Theorem 5.3：加 momentum**。设 $\Delta_t=\nabla\mathcal L_t+\alpha_t\Delta_{t-1}$，定义累积系数 $\beta_i^j=\prod_{s=i+1}^{j}\alpha_s$（$i=j$ 时取 1）。交换求和次序后，整体形式不变，只有 value 变成按 momentum 加权：$\hat v_i=m_i(k_i)=g_i(k_i)\sum_{j=i}^{t}\beta_i^j$（`appendix.tex` §D）。
+**(4) Theorem 5.3：加 momentum**。设 $\Delta_t=\nabla\mathcal L_t+\alpha_t\Delta_{t-1}$，定义累积系数 $\beta_i^j=\prod_{s=i+1}^{j}\alpha_s$（ $i=j$ 时取 1）。交换求和次序后，整体形式不变，只有 value 变成按 momentum 加权： $\hat v_i=m_i(k_i)=g_i(k_i)\sum_{j=i}^{t}\beta_i^j$（`appendix.tex` §D）。
 
 **(5) 两个实例**
-- **LaCT**（§5.3 Eq.1，Appendix E）：inner 网络是 SwiGLU，$f(x)=(\mathrm{silu}(xW_0)\odot xW_2)W_1$；损失为 $\mathcal L=-\langle f(k),v\rangle$，所以 $\partial\mathcal L/\partial f=-v$；另有 per-token lr $\eta_t$、momentum $\alpha_t$，以及 Muon 式正交化 $\mathcal M$。展开后得到
+- **LaCT**（§5.3 Eq.1，Appendix E）：inner 网络是 SwiGLU， $f(x)=(\mathrm{silu}(xW_0)\odot xW_2)W_1$；损失为 $\mathcal L=-\langle f(k),v\rangle$，所以 $\partial\mathcal L/\partial f=-v$；另有 per-token lr $\eta_t$、momentum $\alpha_t$，以及 Muon 式正交化 $\mathcal M$。展开后得到
 $$o_t=\phi_{t+1}(q_t)\Big(W_{1,0}+\sum_{i=0}^{t}\mathcal M\big(\phi_i(k_i)^\top m_i\big)\Big),\qquad m_i=v_i\sum_{j=i}^{t}\eta_j\beta_i^j .$$
-- **ViTTT**（§5.4，Appendix F/G）：GLU 形式 $f(x)=\mathrm{silu}(xW_0)\odot(xW_1)$，取 $\phi(x)=\mathrm{silu}(xW_0)$，单步更新后得到 $o_t=\phi_{t+1}(q_t)\odot\big(q_t(W_{1,t}+\eta\,k_t^\top(v_t\odot\phi_t(k_t)))\big)$（Appendix F 的写法；正文 §5.4 省略了 $\eta$ 和下标 $t$），即 $\phi$ 同时门控 value 和输出。ViTTT 里的 3×3 depthwise conv fast weight 则等价于一个 sliding-window linear attention。
+- **ViTTT**（§5.4，Appendix F/G）：GLU 形式 $f(x)=\mathrm{silu}(xW_0)\odot(xW_1)$，取 $\phi(x)=\mathrm{silu}(xW_0)$，单步更新后得到 $o_t=\phi_{t+1}(q_t)\odot\big(q_t(W_{1,t}+\eta\thinspace k_t^\top(v_t\odot\phi_t(k_t)))\big)$（Appendix F 的写法；正文 §5.4 省略了 $\eta$ 和下标 $t$），即 $\phi$ 同时门控 value 和输出。ViTTT 里的 3×3 depthwise conv fast weight 则等价于一个 sliding-window linear attention。
 
 **(6) 用这个视角解释 (1) 的四个现象**（§5.2）
 - 多走 inner steps，相当于在推理时换了一个训练时没见过的 attention 算子，属于 train–test mismatch。
 - 梯度上升只是让 $\hat v$ 变号，这个符号会被可学习的 value 投影吸收。
-- $q$ 只进入 $\phi_{t+1}(\cdot)$，$k$ 则进入 $\phi_t(\cdot)$ 和 $g_t(\cdot)$，两者本来就不是相似度计算里对称的两端，所以分布不同很正常。
+- $q$ 只进入 $\phi_{t+1}(\cdot)$， $k$ 则进入 $\phi_t(\cdot)$ 和 $g_t(\cdot)$，两者本来就不是相似度计算里对称的两端，所以分布不同很正常。
 - 用 K 代替 Q 之后，有效的 query/key 分别是 $\phi_{t+1}(k)$ 和 $\phi_t(k)$，仍然不同，attention 不会塌缩。
 
 **(7) 化简路径与并行形式**（`sections/6.practical_implications.tex`）
 以下六步依次叠加：
-1. 只更新最后一层。$\Theta$ 固定后，$\phi$ 变成静态的可学习 kernel。
+1. 只更新最后一层。 $\Theta$ 固定后， $\phi$ 变成静态的可学习 kernel。
 2. 去掉 weight norm。此时状态更新满足结合律。
-3. 多层 MLP 换成单层线性，于是 $\hat q=q$、$\hat k=k$。
+3. 多层 MLP 换成单层线性，于是 $\hat q=q$、 $\hat k=k$。
 4. 去掉 per-token lr。在 Frobenius 损失下，它可以被 $v_t$ 吸收。
 5. 去掉 momentum，于是 $\hat v=v$。
-6. 去掉梯度正交化，得到标准 linear attention：$o=q(W+\sum_i k_i^\top v_i)$。
+6. 去掉梯度正交化，得到标准 linear attention： $o=q(W+\sum_i k_i^\top v_i)$。
 
-从第 2 步起，$N$ 个长度为 $L$ 的 chunk 可以一次算完（Appendix H）：
+从第 2 步起， $N$ 个长度为 $L$ 的 chunk 可以一次算完（Appendix H）：
 $$\mathbb O=\Phi(\mathbb Q)W_{1,0}+\big((\Phi(\mathbb Q)\Phi(\mathbb K)^\top)\odot\mathcal C^{\uparrow L}\big)\mathbb V,\qquad \mathcal C_{ti}=\sum_{j=i}^{t}\eta_j\prod_{s=i+1}^{j}\alpha_s\ (t\ge i).$$
-lr 和 momentum 都被折叠进一个下三角的衰减 mask。Appendix I 说明了两种会破坏结合律、因而无法这样并行的情况：更新 $\Theta$（会出现嵌套的 silu/silu'），以及 weight norm（$\mathrm{Norm}(A+B)\ne\mathrm{Norm}(A)+\mathrm{Norm}(B)$）。
+lr 和 momentum 都被折叠进一个下三角的衰减 mask。Appendix I 说明了两种会破坏结合律、因而无法这样并行的情况：更新 $\Theta$（会出现嵌套的 silu/silu'），以及 weight norm（ $\mathrm{Norm}(A+B)\ne\mathrm{Norm}(A)+\mathrm{Norm}(B)$）。
 
 **训练与推理**：outer loop 端到端地学习 QKV 投影、kernel $\phi$ 的参数以及初始 fast weight $W_{1,0}$（后者在 LaCT 中是可学习的初始 fast weight，见 LaCT 源码 `supp.tex`）。对 V2–V6 这类变体，推理时既可用递归形式（状态大小恒定），也可用并行形式，两者数学上等价（Appendix H）；Baseline 与 V1 只能递归执行。
 
@@ -118,11 +118,11 @@ lr 和 momentum 都被折叠进一个下三角的衰减 mask。Appendix I 说明
 2. **Figure 1 是推理时的干预**。模型训练时按 LaCT 默认每个 chunk 只做一次 update（本文未明说训练步数，Figure 1 横轴从 1 起），推理时多走几步，掉点可以直接用 train–test mismatch 解释，作者自己也是这么解释的。干净的对照应该是训练和推理都走 $n$ 步。另外，Frobenius 损失没有下界，"inner loss 更低"本来就不等于"拟合更准"。
 3. **Q→K 实验与 t-SNE 缺乏对照**。论文没说 Q→K 实验是否重训。t-SNE 也没有给 softmax attention 或普通 linear attention 的同类图作对照。另据 [LaCT](../lact/notes.md) 源码 `sections/03_method.tex`：LaCT-LLM 的 TTT 分支与等宽的 sliding window attention 共享 QKV、输出相加；NVS 则只用输入视图做一轮 update。在这种设置下 TTT 分支分担的工作有多少，本身就不清楚。
 4. **带 Muon 的 Eq.1 并不严格成立**。Appendix E 把 $\mathcal M$ 移进了求和号，写成"对每个外积各自正交化"。但 LaCT 实际是对累积的动量做正交化，而 $\mathcal M$ 是非线性的，这一步交换求和次序不严格。所以对原版 LaCT 来说，"linear attention"更多是一个类比；只有 V6 这一端是严格等价。
-5. **一般情形下的"等价"接近重言式**。一旦 $\Theta$ 也在更新，$\phi_{t+1}(q)$ 本身就把全部历史非线性地编码了进去，写成"$\hat q\cdot$ 状态"的形式没有约束什么。真正有实质内容的结论集中在 V1 及之后的变体上。
-6. **MSE 损失没有覆盖到**。在 MSE 损失下，$g_i$ 依赖于当前状态 $W_i$（即 delta rule），Step 4/5 的吸收论证以及 Appendix H 的并行式都不能直接套用。Titans 用的是 MSE 损失，外加 momentum 和 weight decay 形式的遗忘门（见 [Titans](../titans/notes.md) 源码 `Appendix/MAL.tex`），定理没有显式写出衰减项。
+5. **一般情形下的"等价"接近重言式**。一旦 $\Theta$ 也在更新， $\phi_{t+1}(q)$ 本身就把全部历史非线性地编码了进去，写成" $\hat q\cdot$ 状态"的形式没有约束什么。真正有实质内容的结论集中在 V1 及之后的变体上。
+6. **MSE 损失没有覆盖到**。在 MSE 损失下， $g_i$ 依赖于当前状态 $W_i$（即 delta rule），Step 4/5 的吸收论证以及 Appendix H 的并行式都不能直接套用。Titans 用的是 MSE 损失，外加 momentum 和 weight decay 形式的遗忘门（见 [Titans](../titans/notes.md) 源码 `Appendix/MAL.tex`），定理没有显式写出衰减项。
 7. **评测口径偏窄**。只看 ppl、PSNR、top-1，没有测 NIAH、MQAR 这类真正考记忆的召回任务，而 storage 解释恰恰在这类任务上才可能有优势。原文没有报告 seed 数，也没有误差棒，0.2–0.5 ppl 的差异（包括 V1 优于 Baseline）可能落在噪声范围内。
 8. **并行式的细节没交代清楚**。Appendix H 的式子是 $NL\times NL$ 的带 mask 二次形式，并不是正文说的 prefix scan。而且对角块 $\mathcal C_{tt}=\eta_t$ 经 $\otimes\mathbf 1_{L\times L}$ 展开后是取值恒为 $\eta_t$ 的满块（块内没有因果 mask），相当于 update-then-apply；LaCT-LLM 实际用的是 shifted block-wise causal mask（apply-then-update，见 LaCT 源码 `sections/03_method.tex`）。论文没有说明实现上如何对齐。吞吐也只报告了单 batch 的数字。
-9. **其他小问题**。按 20K iter × 32 条序列算（假设没有梯度累积），共 64 万条序列；要真的训满 100B tokens，每条序列需要约 15.6 万 tokens（笔者推算）。论文没写训练序列长度，"100B tokens"很可能指的是采样池。另外 Step 5 写的 "$g_t(k)=-v$" 符号不严谨：按定义应为 $g_t=\eta v$。
+9. **其他小问题**。按 20K iter × 32 条序列算（假设没有梯度累积），共 64 万条序列；要真的训满 100B tokens，每条序列需要约 15.6 万 tokens（笔者推算）。论文没写训练序列长度，"100B tokens"很可能指的是采样池。另外 Step 5 写的 " $g_t(k)=-v$" 符号不严谨：按定义应为 $g_t=\eta v$。
 
 ## 在脉络中的位置
 

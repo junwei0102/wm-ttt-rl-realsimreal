@@ -33,21 +33,21 @@ $$H(\hat y)=-\sum_c p(\hat y_c)\log p(\hat y_c),\qquad \hat y=f_\theta(x^t)$$
 
 **2. 平凡解与 batch。** 如果只对单个样本优化，把全部概率压到 argmax 类就能让 entropy 归零。Tent 的做法是在**整个 batch 共享的**参数上联合优化 batch 内所有预测。实现里 loss 是 batch 平均 $\mathcal L=\frac1B\sum_i H(f(x_i^t))$（官方 `tent.py` 中 `softmax_entropy(...).mean(0)`，正文没有写成公式）。
 
-**白板推导（笔者补充，非论文内容）**：设 logits 为 $z$，$p=\mathrm{softmax}(z)$，则
+**白板推导（笔者补充，非论文内容）**：设 logits 为 $z$， $p=\mathrm{softmax}(z)$，则
 
 $$\frac{\partial H}{\partial z_j}=-p_j\left(\log p_j+H\right)$$
 
-梯度下降时，$z_j$ 的变化正比于 $p_j(\log p_j+H)$。满足 $\log p_j>-H$ 的类（概率高于"典型值"）被推高，其余被压低，效果就是 **sharpening，强者愈强**，相当于用 soft pseudo-label 做 self-training（论文的 PL baseline 是它的 hard 版本）。这也说明了失败方式：source 模型一旦自信地错了，entropy minimization 会把这个错误继续放大。
+梯度下降时， $z_j$ 的变化正比于 $p_j(\log p_j+H)$。满足 $\log p_j>-H$ 的类（概率高于"典型值"）被推高，其余被压低，效果就是 **sharpening，强者愈强**，相当于用 soft pseudo-label 做 self-training（论文的 PL baseline 是它的 hard 版本）。这也说明了失败方式：source 模型一旦自信地错了，entropy minimization 会把这个错误继续放大。
 
-**3. 只更新什么：feature modulation**（`source/03-method.tex` §3.2，Fig.4）。直接更新整个 $\theta$ 有两个问题：$\theta$ 是 source 数据唯一的"记忆"，改动它会让模型偏离训练时的状态；而且 $\theta$ 维度高、$f$ 非线性，测试时优化既敏感又慢。因此 Tent 只更新线性、低维（channel-wise）的调制，直接复用 BN 层：
+**3. 只更新什么：feature modulation**（`source/03-method.tex` §3.2，Fig.4）。直接更新整个 $\theta$ 有两个问题： $\theta$ 是 source 数据唯一的"记忆"，改动它会让模型偏离训练时的状态；而且 $\theta$ 维度高、 $f$ 非线性，测试时优化既敏感又慢。因此 Tent 只更新线性、低维（channel-wise）的调制，直接复用 BN 层：
 
 $$\bar x=\frac{x-\mu}{\sigma},\qquad x'=\gamma\bar x+\beta$$
 
-- **normalization**：$\mu\leftarrow\mathbb E[x^t],\ \sigma^2\leftarrow\mathbb E[(\mu-x^t)^2]$，在前向时用当前 target batch 估计，**由数据统计得到、不由 loss 优化**（论文："statistics are estimated from the data while the parameters are optimized by the loss"）；source 的 running statistics 直接丢弃。这一步单独使用就是 baseline "test-time normalization (BN)"（Schneider et al. 2020 / Nado et al. 2020）。
-- **transformation**：$\gamma,\beta$ 由 $\nabla_{\gamma,\beta}H$ 更新。Fig.4 把更新写成 $\gamma\leftarrow\gamma+\partial H/\partial\gamma$，符号不严谨，实际是用 Adam 或 SGD 做梯度**下降**。
+- **normalization**： $\mu\leftarrow\mathbb E[x^t],\ \sigma^2\leftarrow\mathbb E[(\mu-x^t)^2]$，在前向时用当前 target batch 估计，**由数据统计得到、不由 loss 优化**（论文："statistics are estimated from the data while the parameters are optimized by the loss"）；source 的 running statistics 直接丢弃。这一步单独使用就是 baseline "test-time normalization (BN)"（Schneider et al. 2020 / Nado et al. 2020）。
+- **transformation**： $\gamma,\beta$ 由 $\nabla_{\gamma,\beta}H$ 更新。Fig.4 把更新写成 $\gamma\leftarrow\gamma+\partial H/\partial\gamma$，符号不严谨，实际是用 Adam 或 SGD 做梯度**下降**。
 
 **4. 算法**（`source/03-method.tex` §3.3）：
-- *Initialization*：收集每层 $l$、每个 channel $k$ 的 $\{\gamma_{l,k},\beta_{l,k}\}$，其余参数冻结，source 统计量丢弃。
+- *Initialization*：收集每层 $l$、每个 channel $k$ 的 $\lbrace\gamma_{l,k},\beta_{l,k}\rbrace$，其余参数冻结，source 统计量丢弃。
 - *Iteration*：前向时逐层用当前 batch 估计 $\mu,\sigma$ 并输出预测；反向时用 entropy 梯度更新 $\gamma,\beta$。**本 batch 的预测在更新之前就已给出，更新只作用于下一个 batch**，所以每个测试点只多花一次梯度计算。
 - *Termination*：online 模式下只要有数据就持续更新；offline 模式先在整个 target 集上更新（可跑多个 epoch），再重新推理。另有 episodic 模式（§3.3 未列出，见 §4.2 分割实验、附录 Fig.9 及官方代码的 `episodic` 选项）：每次从头 reset，只针对单个输入迭代若干步，分割实验里就把一张图当作"一个 batch 的像素"。
 - 官方实现中，`configure_model` 把模型设为 `train()`（让 BN 使用 batch 统计），设置 `track_running_stats=False`，并只对 BN 层打开 `requires_grad`。
@@ -83,7 +83,7 @@ $$\bar x=\frac{x-\mu}{\sigma},\qquad x'=\gamma\bar x+\beta$$
 **Sim-to-real**：GTA→Cityscapes 分割（HRNet-W18），mIoU source 28.8%，BN 31.4%，Tent 35.8%（offline，Adam）。单张图像 episodic 迭代 10 次为 36.4%，定性结果见 Fig.9：路面噪声被抑制，漏掉的 motorcycle/rider 类被找回。VisDA-C（合成渲染→真实，12 类）：source 56.1%，Tent 45.6%；改用 SHOT 的参数化（更新除最后分类器外的所有层）后为 39.6%。
 
 **分析 / 消融**（§4.3）：
-- Fig.6：在 CIFAR-100-C 全部 75 个 type/level 组合上，$\Delta H$ 与 $\Delta L$ 的 rank correlation 为 0.22，大多数点的 entropy 和 loss 都下降了。
+- Fig.6：在 CIFAR-100-C 全部 75 个 type/level 组合上， $\Delta H$ 与 $\Delta L$ 的 rank correlation 为 0.22，大多数点的 entropy 和 loss 都下降了。
 - **参数选择消融**（只有文字，没有给表格数字）：不更新 normalization 时误差上升，可能连 BN、PL 都比不过；不更新 $\gamma,\beta$ 就退化成 BN；只更新最后一层会先变好、继续优化后变差；**更新全部 $\theta$ 从未优于未适应的 source 模型**（"never improves over"）。由此可见，"低维调制"这个约束是方法能奏效的前提。
 - 泛化性：在 target train 上适应、在 target test 上评测，CIFAR-100-C 从 37.3% 降到 34.2%，SVHN→MNIST 从 8.2% 降到 6.5%（子采样到相同规模后差异 <0.1%），说明学到的调制不是针对单个点的。
 - Fig.7 / Fig.10 的特征分布：BN 把特征拉回无 corruption 时的 reference；Tent 并不向 reference 靠拢，而是更接近在 target 标签上优化得到的 oracle。可见 Tent 的作用是 task-specific 的，不只是把分布对齐回去。

@@ -19,25 +19,25 @@
 三阶段流水线（`approach.tex`，Fig. 1–3）。
 
 **① Real-to-sim：物体轨迹 + 场景重建**（Sec. 3.1，Fig. 2）。第一帧用 SAM 生成物体 mask，FoundationPose 根据 mesh 和 mask 逐帧跟踪 6D 位姿：
-$$\mathbf{v_H}=\{v_H^t\}_{t=1}^T,\ v_H^t\in\mathbb{R}^{H\times W\times 4}\ \longrightarrow\ \mathbf{s_H}=\{s_H^t\}_{t=1}^T,\ s_H^t\in\mathrm{SE}(3)^K$$
+$$\mathbf{v_H}=\lbrace v_H^t\rbrace_{t=1}^T,\ v_H^t\in\mathbb{R}^{H\times W\times 4}\ \longrightarrow\ \mathbf{s_H}=\lbrace s_H^t\rbrace_{t=1}^T,\ s_H^t\in\mathrm{SE}(3)^K$$
 其中 $K$ 是被跟踪物体数。环境用 2D Gaussian Splatting 重建出几何准确、外观逼真的 mesh，与物体一起导入 ManiSkill。
 
 **② 仿真中 RL + 合成数据**（Sec. 3.2）。从 $\mathbf{s_H}$ 中采样 $N$ 个物体位姿 waypoint 作为子目标序列。对当前子目标 $s_H^B$（`approach.tex` Eq. 1）：
 $$r_{\rm goal}\propto -d_{pos}(s_H^B,s_R^t)-d_{rot}(s_H^B,s_R^t)$$
 附录给出实际实现（`appendix.tex` Reward Function Formulation）：
-$$r_{\rm approach}=1-\tanh(k\,d_{\rm obj}),\qquad r_{\rm goal}=\big(1-\tanh(\alpha_d d_{\rm pos})\big)+\big(1-\tanh(\alpha_\theta d_{\rm rot})\big)+2\,i_{\rm waypoint}$$
+$$r_{\rm approach}=1-\tanh(k\thinspace d_{\rm obj}),\qquad r_{\rm goal}=\big(1-\tanh(\alpha_d d_{\rm pos})\big)+\big(1-\tanh(\alpha_\theta d_{\rm rot})\big)+2\thinspace i_{\rm waypoint}$$
 $$r_{\rm obj}=r_{\rm approach}+r_{\rm goal}$$
-$d_{\rm obj}$ 是末端到目标物体的距离，$d_{\rm pos}$ 是欧氏距离，$d_{\rm rot}$ 是四元数角度差；$\alpha_d,\alpha_\theta$ 按每个 waypoint 从示范中自动计算；$i_{\rm waypoint}$ 是当前 waypoint 序号，用作进度奖励。物体进入当前目标的 $\epsilon$ 邻域后，观测中的 `desired_goal` 切换到下一个 waypoint，所以多步任务能用同一套 reward 表达。另外还有 $r_{\rm static}$（物体到位后让机器人保持稳定）、$r_{\rm success}$（完成 +1）和可选的 binary grasp 奖励。除了 $r_{\rm approach}$（末端靠近物体）和 $r_{\rm static}$（机器人保持稳定）这类通用引导项，任务目标项只由物体状态定义，与人手怎么动无关，机器人可以用完全不同的抓法和轨迹，这就是它能绕开 embodiment gap 的原因。
+$d_{\rm obj}$ 是末端到目标物体的距离， $d_{\rm pos}$ 是欧氏距离， $d_{\rm rot}$ 是四元数角度差； $\alpha_d,\alpha_\theta$ 按每个 waypoint 从示范中自动计算； $i_{\rm waypoint}$ 是当前 waypoint 序号，用作进度奖励。物体进入当前目标的 $\epsilon$ 邻域后，观测中的 `desired_goal` 切换到下一个 waypoint，所以多步任务能用同一套 reward 表达。另外还有 $r_{\rm static}$（物体到位后让机器人保持稳定）、 $r_{\rm success}$（完成 +1）和可选的 binary grasp 奖励。除了 $r_{\rm approach}$（末端靠近物体）和 $r_{\rm static}$（机器人保持稳定）这类通用引导项，任务目标项只由物体状态定义，与人手怎么动无关，机器人可以用完全不同的抓法和轨迹，这就是它能绕开 embodiment gap 的原因。
 
-Privileged state（`appendix.tex` Table 2）：`ee_pose`、`gripper_width`、`achieved_goal`（当前物体位姿）、`desired_goal`、位置差、角度差、`is_grasped`。用 PPO 训练 $\pi_{\rm RL}(a|s)$，训练时随机化物体初始位姿。PPO 超参（Table 1）：lr $3\times10^{-4}$，$\gamma=0.8$，GAE $\lambda=0.9$，clip $\epsilon=0.2$，entropy 系数 0，target KL 0.1，minibatch 9,600，**1,024 个并行环境**，actor/critic 都是 3 层 256 的 Tanh MLP。
+Privileged state（`appendix.tex` Table 2）：`ee_pose`、`gripper_width`、`achieved_goal`（当前物体位姿）、`desired_goal`、位置差、角度差、`is_grasped`。用 PPO 训练 $\pi_{\rm RL}(a|s)$，训练时随机化物体初始位姿。PPO 超参（Table 1）：lr $3\times10^{-4}$， $\gamma=0.8$，GAE $\lambda=0.9$，clip $\epsilon=0.2$，entropy 系数 0，target KL 0.1，minibatch 9,600，**1,024 个并行环境**，actor/critic 都是 3 层 256 的 Tanh MLP。
 
-训练好之后 rollout $\pi_{\rm RL}$，**只保留成功轨迹**，渲染时随机化物体初始位姿（XY $\pm0.025$ m，旋转 $\pm\pi/8$）、机器人关节（$\pm0.02$ rad）、相机位置与朝向目标点（各 $\pm0.03$ m）和 4 种光照预设（Table 3），每个任务收 500 条 $\xi_R=\{(o_R^t,a_R^t)\}_{t=1}^N$，组成 $D_{\rm synthetic}$。
+训练好之后 rollout $\pi_{\rm RL}$，**只保留成功轨迹**，渲染时随机化物体初始位姿（XY $\pm0.025$ m，旋转 $\pm\pi/8$）、机器人关节（ $\pm0.02$ rad）、相机位置与朝向目标点（各 $\pm0.03$ m）和 4 种光照预设（Table 3），每个任务收 500 条 $\xi_R=\lbrace(o_R^t,a_R^t)\rbrace_{t=1}^N$，组成 $D_{\rm synthetic}$。
 
-**③ Sim-to-real：蒸馏 + 自动校准**（Sec. 3.3，Fig. 3）。在 $D_{\rm synthetic}$ 上用 BC 训练 Diffusion Policy $\pi_{\rm img}(a|o)$：只输入当前 RGB，预测动作序列 $\{a_R^h\}_{h=1}^H$。配置（Table 4）：ResNet18，图像 960×720 缩到 96×96，训练 100 个 / 推理 10 个 diffusion step，action horizon 2，prediction horizon 8，batch 64，lr $1\times10^{-4}$。
+**③ Sim-to-real：蒸馏 + 自动校准**（Sec. 3.3，Fig. 3）。在 $D_{\rm synthetic}$ 上用 BC 训练 Diffusion Policy $\pi_{\rm img}(a|o)$：只输入当前 RGB，预测动作序列 $\lbrace a_R^h\rbrace_{h=1}^H$。配置（Table 4）：ResNet18，图像 960×720 缩到 96×96，训练 100 个 / 推理 10 个 diffusion step，action horizon 2，prediction horizon 8，batch 64，lr $1\times10^{-4}$。
 
-零样本部署后开始校准。在真实世界跑策略（实验里跑 10 条，**失败的也保留**），用 FoundationPose 从第一帧估出物体初始位姿，按这个状态初始化仿真，然后**原样 replay 真实机器人轨迹**，得到逐帧对应的 $D_{\rm paired}=\{(o_R^{\rm sim},o_R^{\rm real})\}_{i=1}^D$。接下来训练时在 $D_{\rm synthetic}$ 上用 BC loss，同时在 $D_{\rm paired}$ 上加 InfoNCE（`approach.tex` Eq. 2，原文如此）：
-$$\mathcal{L}_{\rm calibration}=-\!\!\sum_{(o_R^{\rm sim},o_R^{\rm real})\in D_{\rm paired}}\frac{\exp\big(s(\phi(o_R^{\rm sim}),\phi(o_R^{\rm real}))/\tau\big)}{\sum_{(\_,o_R^{'\rm real})\in D_{\rm paired}}\exp\big(s(\phi(o_R^{\rm sim}),\phi(o_R^{'\rm real}))/\tau\big)}$$
-$\phi$ 是策略的图像编码器，$s$ 是余弦相似度，$\tau$ 是温度。标准 InfoNCE（CPC）在分式外还有一个 $\log$，Eq. 2 写漏了，按常规应读作 $-\sum\log(\cdot)$。总损失 = 1 × action prediction loss + 0.1 × calibration loss（Table 4）。正样本是同一状态下的 sim/real 图像，负样本是 $D_{\rm paired}$ 中其他配对的真实图像 $o_R^{'\rm real}$（原文："images corresponding to different environment states"）。这样编码器被迫忽略渲染伪影这类只属于某个域的特征，BC 项则保证编码器仍保留预测动作需要的信息。配对靠 replay 得到，不需要动作标签，也不需要 rollout 成功，所以失败轨迹同样能用。
+零样本部署后开始校准。在真实世界跑策略（实验里跑 10 条，**失败的也保留**），用 FoundationPose 从第一帧估出物体初始位姿，按这个状态初始化仿真，然后**原样 replay 真实机器人轨迹**，得到逐帧对应的 $D_{\rm paired}=\lbrace(o_R^{\rm sim},o_R^{\rm real})\rbrace_{i=1}^D$。接下来训练时在 $D_{\rm synthetic}$ 上用 BC loss，同时在 $D_{\rm paired}$ 上加 InfoNCE（`approach.tex` Eq. 2，原文如此）：
+$$\mathcal{L}_ {\rm calibration}=-\negthinspace\negthinspace\sum_{(o_R^{\rm sim},o_R^{\rm real})\in D_{\rm paired}}\frac{\exp\big(s(\phi(o_R^{\rm sim}),\phi(o_R^{\rm real}))/\tau\big)}{\sum_{({\char"5F},o_R^{'\rm real})\in D_{\rm paired}}\exp\big(s(\phi(o_R^{\rm sim}),\phi(o_R^{'\rm real}))/\tau\big)}$$
+$\phi$ 是策略的图像编码器， $s$ 是余弦相似度， $\tau$ 是温度。标准 InfoNCE（CPC）在分式外还有一个 $\log$，Eq. 2 写漏了，按常规应读作 $-\sum\log(\cdot)$。总损失 = 1 × action prediction loss + 0.1 × calibration loss（Table 4）。正样本是同一状态下的 sim/real 图像，负样本是 $D_{\rm paired}$ 中其他配对的真实图像 $o_R^{'\rm real}$（原文："images corresponding to different environment states"）。这样编码器被迫忽略渲染伪影这类只属于某个域的特征，BC 项则保证编码器仍保留预测动作需要的信息。配对靠 replay 得到，不需要动作标签，也不需要 rollout 成功，所以失败轨迹同样能用。
 
 **训练 / 推理流程**：训练依次是扫描 → 跟踪 → PPO → 渲染 500 条 → 训 DP；部署时先零样本跑，收集 10 条 rollout，replay 配对，带 InfoNCE 重新训练，再部署。推理时只用真实 RGB 图像，不需要物体位姿。
 
@@ -69,10 +69,10 @@ $\phi$ 是策略的图像编码器，$s$ 是余弦相似度，$\tau$ 是温度�
 **我读出来的**：
 - **评测口径**：每个任务 10 次试验，分三段计分，所以分数粒度是 1/30≈3.3%，而且没有误差棒或置信区间。校准在有变化的三个任务上带来 +10~14 个百分点（五任务平均 7.4），很可能在噪声范围内。Novel 视角的 53.5% 不是 1/30 的整数倍（53.3% 才是），疑似笔误。测试分布也窄：只比示范初始位置稍有扰动，仿真随机化范围只有 ±2.5 cm / ±π/8。
 - **基线偏弱**：Hand Mask 没有叠加机械臂，所以不是完整的 PHANTOM；Object-Aware IK 只是用 IK 重放（replay）相对物体的手部轨迹，是否有闭环修正原文未说明。H2S2R 只比了一个任务，复现细节也没交代。
-- **"online / test-time" 的实际含义**：做法是收 10 条 rollout 后离线再训练一次。论文没说迭代了几轮，没说是 fine-tune 还是从头训，也没有对 rollout 数量、loss 权重、$\tau$ 做消融（$\tau$ 的取值本身也未报告）。更关键的是 replay 配对的前提：机器人碰到物体之后，默认物理下仿真里的物体运动可能与真实分叉，后半段的"正样本对"其实并不对应。论文没有分析这一点。
+- **"online / test-time" 的实际含义**：做法是收 10 条 rollout 后离线再训练一次。论文没说迭代了几轮，没说是 fine-tune 还是从头训，也没有对 rollout 数量、loss 权重、 $\tau$ 做消融（ $\tau$ 的取值本身也未报告）。更关键的是 replay 配对的前提：机器人碰到物体之后，默认物理下仿真里的物体运动可能与真实分叉，后半段的"正样本对"其实并不对应。论文没有分析这一点。
 - **只对齐了视觉**：dynamics gap 完全没处理。Mug Insert 这种需要精度的任务最差（0.70），可能就是接触动力学或跟踪误差造成的上限。
 - **蒸馏是纯 BC**：只用成功轨迹，没有 DAgger，student 学不到从 teacher 状态分布之外恢复的能力（对比 [RialTo](../rialto/notes.md) 的 DAgger + co-training）。
-- **reward 的细节没有公开数值**：$k,\alpha_d,\alpha_\theta,\epsilon,N$ 以及 $r_{\rm static}$ 的形式都没给；$\gamma=0.8$ 很短视，要靠稠密的 waypoint 奖励撑住。
+- **reward 的细节没有公开数值**： $k,\alpha_d,\alpha_\theta,\epsilon,N$ 以及 $r_{\rm static}$ 的形式都没给； $\gamma=0.8$ 很短视，要靠稠密的 waypoint 奖励撑住。
 - **算力未报告**：GPU 型号、PPO 训练时长、DP 训练时长都没写。
 - **"cross-embodiment" 的范围**：只测了人 → Franka 一种迁移，没有换别的机器人。
 
@@ -103,12 +103,12 @@ $\phi$ 是策略的图像编码器，$s$ 是余弦相似度，$\tau$ 是温度�
 - **算力**：论文和 README 都没给 GPU 型号、数量或时长。已知的只有 1,024 个并行环境（Table 1）、每任务 500 条渲染轨迹（`appendix.tex`），以及 96×96 输入的 ResNet18 DP。按这个规模估计，单卡应该能跑，但这是我的推断，论文没有给出。
 - **硬件与数据**：真实实验需要 Franka、ZED 2（RGBD）和手机扫描；README 要求用户自己扫描环境（2DGS）和物体（Polycam）；setup 脚本会下载 assets，但 README 没说明其中是否包含这 5 个任务的扫描场景和物体 mesh。
 - **最小可复现实验**（纯仿真，不需要机器人）：(1) 在 repo 自带的 Mustard Place 或 Shoe on Rack 环境里用 object-centric reward 训练 PPO，检查成功率曲线，并去掉 $2i_{\rm waypoint}$ 或 $r_{\rm approach}$ 看 reward 各项的作用；(2) 渲染 500 条轨迹训练 DP，在仿真中复现 Fig. 9 的 Side / Frontal / 两者都用 → Novel 视角的趋势；(3) 另造一个"伪真实"域（换光照、纹理或渲染器）来模拟 sim-to-real，比较有无 InfoNCE 校准时的成功率。第 (3) 步是代理实验，不是论文原设定。
-- **预计难点**：FoundationPose 在手遮挡下的跟踪质量；2DGS mesh 导入 ManiSkill 时的人工缩放和相机外参对齐；未公开的 reward 系数（$k,\alpha,\epsilon,N$）需要照代码抄；replay 配对要求 sim 和 real 的相机与机器人控制严格一致。
+- **预计难点**：FoundationPose 在手遮挡下的跟踪质量；2DGS mesh 导入 ManiSkill 时的人工缩放和相机外参对齐；未公开的 reward 系数（ $k,\alpha,\epsilon,N$）需要照代码抄；replay 配对要求 sim 和 real 的相机与机器人控制严格一致。
 
 ## 自测问题
 
 1. object-centric reward 为什么能绕开 embodiment gap？在 Tabletop 任务上 Object-Aware IK 会在哪几种情况下失败，而 PPO 在仿真里是怎么避开这些失败的？
 2. 既然仿真里已经有 privileged-state PPO 策略，为什么不在真实世界配上 FoundationPose 直接部署它，而是要蒸馏成 RGB 策略？请用 H2S2R 43.3% vs 83.3% 的对比来解释。
 3. 校准时正样本和负样本分别怎么构造？为什么失败的 rollout 也能用？如果机器人接触物体后仿真与真实的物体运动开始分叉，InfoNCE 会学到什么？为什么还要同时保留 $D_{\rm synthetic}$ 上的 BC loss？
-4. $r_{\rm goal}$ 里的 $2i_{\rm waypoint}$ 和"物体到达 $\epsilon$ 邻域就切换 desired_goal"这两个设计分别解决什么问题？$\epsilon$ 设得太大或太小会各自出现什么行为？
+4. $r_{\rm goal}$ 里的 $2i_{\rm waypoint}$ 和"物体到达 $\epsilon$ 邻域就切换 desired_goal"这两个设计分别解决什么问题？ $\epsilon$ 设得太大或太小会各自出现什么行为？
 5. 数据效率实验里，3 段人类视频为什么能胜过 10 条遥操作轨迹？这个优势依赖哪些假设（物体 mesh、场景扫描、默认物理足够准）？

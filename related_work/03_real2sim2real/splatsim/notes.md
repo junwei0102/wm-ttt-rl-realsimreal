@@ -5,18 +5,18 @@
 
 ## 一句话
 
-SplatSim 让 PyBullet 只管物理，把真实场景的 3D Gaussian Splatting 重建按刚体（机器人各 link、夹爪各 link）切开，每个物体另有自己的 splat $\mathcal{S}^k_{obj}$。每一步用仿真给出的位姿对这些 Gaussian 做刚体变换（$\mu'=R\mu+t,\ \Sigma'=R\Sigma R^\top$），再渲染成照片级 RGB。这样生成的数据只用来训练 Diffusion Policy，训完不做任何微调，直接部署到真实机器人。4 个任务的平均成功率是 86.25%，用真实数据训练的 policy 是 97.5%。
+SplatSim 让 PyBullet 只管物理，把真实场景的 3D Gaussian Splatting 重建按刚体（机器人各 link、夹爪各 link）切开，每个物体另有自己的 splat $\mathcal{S}^k_{obj}$。每一步用仿真给出的位姿对这些 Gaussian 做刚体变换（ $\mu'=R\mu+t,\ \Sigma'=R\Sigma R^\top$），再渲染成照片级 RGB。这样生成的数据只用来训练 Diffusion Policy，训完不做任何微调，直接部署到真实机器人。4 个任务的平均成功率是 86.25%，用真实数据训练的 policy 是 97.5%。
 
 ## 问题设定
 
 - **目标**：RGB-only 的操作 policy 完全在仿真数据上训练，然后 zero-shot 部署到真实世界。作者把 vision sim-to-real 看成一个 out-of-domain generalization 问题：仿真图像和真实图像的分布差得太远（`1_intro.tex`）。
 - **输入**：
-  - $\mathcal{S}_{real}$：用多视角 RGB（"一段静态场景视频"）重建的真实场景 Gaussian Splat，场景里包含处于 home pose 的机器人（Fig. 3 caption）。
+  - $\mathcal{S}_ {real}$：用多视角 RGB（"一段静态场景视频"）重建的真实场景 Gaussian Splat，场景里包含处于 home pose 的机器人（Fig. 3 caption）。
   - $\mathcal{S}^k_{obj}$：第 $k$ 个物体单独多视角扫描得到的 splat。
   - 仿真器（PyBullet）：提供机器人 URDF/CAD 和物体的仿真点云。
   - 专家 $\mathcal{E}$：在仿真里用 Gello 遥操作，或者用读取特权状态的 motion planner。
-- **形式化**（`3_method.tex` §Problem Statement）：状态 $s_t=(q_t,x^1_t,\dots,x^n_t)$，其中 $q_t\in\mathbb{R}^m$ 是关节角，$x^k_t=(p^k_t,R^k_t)\in\mathbb{R}^3\times SO(3)$ 是物体位姿。动作 $a_t=(p^e_t,R^e_t)$ 是末端执行器位姿。仿真轨迹 $\tau_\mathcal{E}=\{(s_t,a_t)\}$ 被渲染成 $\tau_\mathcal{G}=\{(I^{sim}_t,a_t)\}$，用来训练 $\pi_\mathcal{I}$。测试时 policy 只看真实 RGB $I^{real}$（按 Fig. 2，还输入末端位姿）。
-- **隐含假设**：所有交互物体都是刚体；部署场景就是扫描过的那个场景（背景、光照不变）；仿真坐标系、真实世界坐标系和机器人基座坐标系对齐（$\mathcal{F}_{sim}$、$\mathcal{F}_{robot}$ 都与 $\mathcal{F}_{real}$ 对齐）；不需要真实世界的 reward 或演示。
+- **形式化**（`3_method.tex` §Problem Statement）：状态 $s_t=(q_t,x^1_t,\dots,x^n_t)$，其中 $q_t\in\mathbb{R}^m$ 是关节角， $x^k_t=(p^k_t,R^k_t)\in\mathbb{R}^3\times SO(3)$ 是物体位姿。动作 $a_t=(p^e_t,R^e_t)$ 是末端执行器位姿。仿真轨迹 $\tau_\mathcal{E}=\lbrace(s_t,a_t)\rbrace$ 被渲染成 $\tau_\mathcal{G}=\lbrace(I^{sim}_ t,a_t)\rbrace$，用来训练 $\pi_\mathcal{I}$。测试时 policy 只看真实 RGB $I^{real}$（按 Fig. 2，还输入末端位姿）。
+- **隐含假设**：所有交互物体都是刚体；部署场景就是扫描过的那个场景（背景、光照不变）；仿真坐标系、真实世界坐标系和机器人基座坐标系对齐（ $\mathcal{F}_ {sim}$、 $\mathcal{F}_ {robot}$ 都与 $\mathcal{F}_ {real}$ 对齐）；不需要真实世界的 reward 或演示。
 - **之前的方法卡在哪**（`2_related_works.tex`）：
   - 深度、点云、触觉这类 sim-to-real gap 小的模态已经能 zero-shot 迁移，RGB 却很少作为主模态。
   - RGB 路线用 domain randomization，需要逐任务调参和环境工程。
@@ -32,25 +32,25 @@ SplatSim 让 PyBullet 只管物理，把真实场景的 3D Gaussian Splatting �
 
 **1. 刚体变换下的 Gaussian**（`3_method.tex` Eq. 1–2）。给定 $T=(R,t)$，对刚体上每个 Gaussian 做：
 
-$$\mu'=R\mu+t,\qquad \Sigma'=R\,\Sigma\,R^\top$$
+$$\mu'=R\mu+t,\qquad \Sigma'=R\thinspace\Sigma\thinspace R^\top$$
 
 论文只给出 $\mu$ 和 $\Sigma$ 的变换，没有提 opacity 和颜色（SH 系数）怎么处理。刚体上所有 Gaussian 共用同一个 $T$。
 
-**2. 坐标系**（§IV-B）。$\mathcal{F}_{splat}$ 是 splat 里机器人基座所在的坐标系，与仿真坐标系不同。$T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}$ 把 splat 坐标变到仿真坐标。每个物体还有两个局部坐标系：$\mathcal{F}_{k\text{-}obj,sim}$（物体在仿真中初始化于原点，无旋转）和 $\mathcal{F}_{k\text{-}obj,splat}$。
+**2. 坐标系**（§IV-B）。 $\mathcal{F}_ {splat}$ 是 splat 里机器人基座所在的坐标系，与仿真坐标系不同。 $T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}}$ 把 splat 坐标变到仿真坐标。每个物体还有两个局部坐标系： $\mathcal{F}_ {k\text{-}obj,sim}$（物体在仿真中初始化于原点，无旋转）和 $\mathcal{F}_ {k\text{-}obj,splat}$。
 
 **3. Robot Splat Model**（§IV-C，Fig. 3），分三步：
 
-- (a) 在 $\mathcal{S}_{real}$ 里**手动**分割出属于机器人的 Gaussian，把它们的均值当点云，与仿真器给出的 ground-truth 点云做 **ICP**，得到 $T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}$。
+- (a) 在 $\mathcal{S}_ {real}$ 里**手动**分割出属于机器人的 Gaussian，把它们的均值当点云，与仿真器给出的 ground-truth 点云做 **ICP**，得到 $T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}}$。
 - (b) 用 CAD 模型给出的各 link bounding box，把 Gaussian 分到各个 link，得到 $\mathcal{S}^l_{real}$。
 - (c) 用 PyBullet 的 forward kinematics 求出 link $l$ 在 $q_t$ 下的变换 $T^l_{fk}$，再按下式（`3_method.tex` Eq. 3）变换该 link 的 Gaussian：
 
-$$T=\big(T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}\big)^{-1}\cdot T^{l}_{fk}\cdot T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}$$
+$$T=\big(T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}}\big)^{-1}\cdot T^{l}_ {fk}\cdot T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}}$$
 
-白板上的读法：这是一个**共轭**。先把 Gaussian 从 splat 系搬到仿真系，在仿真系里施加 link 的运动，再搬回 splat 系，这样新位姿的 link 仍然嵌在原来的场景 splat 里渲染。我的理解（论文记号里省略了）：扫描时机器人处在 home pose，所以这里的 $T^l_{fk}$ 实际上应当是相对 home 构型的运动，即 $FK_l(q_t)\,FK_l(q_{home})^{-1}$；否则 $q_t=q_{home}$ 时得不到恒等变换。
+白板上的读法：这是一个**共轭**。先把 Gaussian 从 splat 系搬到仿真系，在仿真系里施加 link 的运动，再搬回 splat 系，这样新位姿的 link 仍然嵌在原来的场景 splat 里渲染。我的理解（论文记号里省略了）：扫描时机器人处在 home pose，所以这里的 $T^l_{fk}$ 实际上应当是相对 home 构型的运动，即 $FK_l(q_t)\thinspace FK_l(q_{home})^{-1}$；否则 $q_t=q_{home}$ 时得不到恒等变换。
 
-**4. Object Splat Model**（§IV-D，Eq. 4）。物体单独扫描得到 $\mathcal{S}^k_{obj}$，与仿真物体点云做 ICP，得到 $T^{\mathcal{F}_{k\text{-}obj,splat}}_{\mathcal{F}_{k\text{-}obj,sim}}$（§IV-B 里同一矩阵的上下标写反了，这里按 §IV-D 和 Eq. 4 的写法）。再由仿真状态 $(p^k_t,R^k_t)$ 构造 $T^{k\text{-}obj}_{fk}$：
+**4. Object Splat Model**（§IV-D，Eq. 4）。物体单独扫描得到 $\mathcal{S}^k_{obj}$，与仿真物体点云做 ICP，得到 $T^{\mathcal{F}_ {k\text{-}obj,splat}}_ {\mathcal{F}_ {k\text{-}obj,sim}}$（§IV-B 里同一矩阵的上下标写反了，这里按 §IV-D 和 Eq. 4 的写法）。再由仿真状态 $(p^k_t,R^k_t)$ 构造 $T^{k\text{-}obj}_ {fk}$：
 
-$$T=\big(T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}\big)^{-1}\cdot T^{k\text{-}obj}_{fk}\cdot T^{\mathcal{F}_{k\text{-}obj,splat}}_{\mathcal{F}_{k\text{-}obj,sim}}$$
+$$T=\big(T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}}\big)^{-1}\cdot T^{k\text{-}obj}_ {fk}\cdot T^{\mathcal{F}_ {k\text{-}obj,splat}}_ {\mathcal{F}_ {k\text{-}obj,sim}}$$
 
 这条链从右往左读：物体 splat 系 → 物体在仿真中的规范系 → 仿真世界中第 $t$ 步的位姿 → 场景 splat 系。
 
@@ -96,7 +96,7 @@ $$T=\big(T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}\big)^{-1}\cdot T^{k\text{
 - **消融：数据增强**（§V-D）：4 个任务平均，不加增强时 Sim2Real 成功率是 21%，加上后是 86.25%，没有逐任务的拆分。这说明**光有 3DGS 不够**：阴影、反射、线缆这类残余外观差异，必须靠训练时的增强来吸收。
 - **论文内部数字不一致**（我读出来的，需要注意）：
   - Assembly 的 Sim2Sim 在 Table I 里是 85%，§V-B 正文写的是 95%。表中 Total 95.62% 与 85% 一致，所以正文的 95% 应该是笔误。
-  - Real2Real 四项按表内数字平均是 $(100+100+95+90)/4=96.25\%$，和表中以及摘要里的 97.5% 对不上。
+  - Real2Real 四项按表内数字平均是 $(100+100+95+90)/4=96.25$%，和表中以及摘要里的 97.5% 对不上。
 
 ## 局限与论文没说的
 
@@ -137,7 +137,7 @@ $$T=\big(T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}\big)^{-1}\cdot T^{k\text{
 
 ## 前置知识
 
-1. 3D Gaussian Splatting：Gaussian 的参数（$\mu$、$\Sigma=RSS^\top R^\top$、opacity、SH 颜色）和 tile-based rasterization。
+1. 3D Gaussian Splatting：Gaussian 的参数（ $\mu$、 $\Sigma=RSS^\top R^\top$、opacity、SH 颜色）和 tile-based rasterization。
 2. 齐次变换、坐标系链式变换、共轭变换 $A^{-1}BA$ 的几何含义。
 3. 机器人 forward kinematics 和 URDF。
 4. ICP 点云配准。
@@ -162,8 +162,8 @@ $$T=\big(T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}\big)^{-1}\cdot T^{k\text{
 
 ## 自测问题
 
-1. Eq. 3 为什么写成 $(T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}})^{-1}T^l_{fk}T^{\mathcal{F}_{splat}}_{\mathcal{F}_{robot}}$ 这种共轭形式？扫描时机器人处在 home pose，这对 $T^l_{fk}$ 的实际含义意味着什么？
-2. Eq. 4 的三段变换分别把 Gaussian 从哪个坐标系搬到哪个坐标系？为什么物体要单独扫描，而不直接从 $\mathcal{S}_{real}$ 里分割出来？
+1. Eq. 3 为什么写成 $(T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}})^{-1}T^l_{fk}T^{\mathcal{F}_ {splat}}_ {\mathcal{F}_ {robot}}$ 这种共轭形式？扫描时机器人处在 home pose，这对 $T^l_{fk}$ 的实际含义意味着什么？
+2. Eq. 4 的三段变换分别把 Gaussian 从哪个坐标系搬到哪个坐标系？为什么物体要单独扫描，而不直接从 $\mathcal{S}_ {real}$ 里分割出来？
 3. 为什么只变换 $\mu$ 和 $\Sigma$ 就能在新位姿下渲染？哪些外观效应（阴影、反射、view-dependent color、柔性线缆）会因此出错？"21% → 86.25%"这个消融说明了什么？
 4. 机械臂的 link 用 CAD bounding box 分割，夹爪却要用 KNN classifier，原因是什么？
 5. SplatSim 缩小的是哪一类 sim-to-real gap？Assembly 从 Sim2Sim 的 85% 掉到 Sim2Real 的 70%，你会设计什么实验来判断这是外观问题还是物理（接触、摩擦）问题？

@@ -38,7 +38,7 @@
 | 2025 | [ASAP](./asap/notes.md) | 用真机轨迹训练 delta action model $\pi^\Delta(s,a)$，训练方法是 PPO，奖励是仿真状态与真实状态的匹配程度。之后冻结它，在 $f^{sim}(s,a+\pi^\Delta)$ 里微调 policy，部署时去掉 $\pi^\Delta$ | SysID（例如 SimOpt）只能在预先定义的参数空间里调，参数化之外的动力学补不了；DR 会让高敏捷动作变保守 | 需要 MoCap，采数据时损坏了两台 G1；真机只验证了 2 个动作；动作空间的残差表达不了与动作无关的 gap |
 | 2025 | [PhysTwin](./phystwin/notes.md) | 从一段三视角 RGB-D 人手交互视频重建可形变物体，模型由 spring-mass、TRELLIS 补全的几何和 Gaussians 组成。先用 CMA-ES 确定拓扑和低维参数，再用可微仿真优化上万根弹簧的刚度 | 之前的 real2sim（RialTo、SplatSim、SIMPLER）都假设刚体或铰接刚体；dynamic 3DGS 没有物理，做不了 action-conditioned 预测；GNN 学动力学需要大量数据 | 没有"在 twin 里训 policy 再上真机"的证据；只能辨识类似 $k/m$ 的比值 |
 | 2025 | [X-Sim](./x-sim/notes.md) | 从没有动作标签的 RGBD 人类视频里只取物体的 6D 轨迹，作为 object-centric reward，在 2DGS 重建的 ManiSkill 场景里训练 PPO，再蒸馏成 RGB Diffusion Policy。部署后在仿真里 replay 真实 rollout，得到 sim/real 成对图像，用 InfoNCE 做校准 | RialTo 仍需要真实机器人示范；手部 retargeting 在运动学或动力学上常常不可行；SplatSim 没有 RL | 需要物体 mesh 和场景扫描；只校准视觉，不校准物理；每个任务只有 10 次试验 |
-| 2025 | [Reality Gap 综述](./survey-reality-gap/notes.md) | 把 gap 拆成 dynamics、perception、actuation、system design 四类，把方法分成 reducing 和 overcoming 两类，并整理了 SRCC、offline replay error 等指标 | 此前的讨论常把 gap 当成"一个东西" | 没有给出从 $G_{\text{dyn}}$、$G_{\text{perc}}$ 到 $G_{\text{perf}}$ 的界；对 world model 和 TTT 覆盖很薄 |
+| 2025 | [Reality Gap 综述](./survey-reality-gap/notes.md) | 把 gap 拆成 dynamics、perception、actuation、system design 四类，把方法分成 reducing 和 overcoming 两类，并整理了 SRCC、offline replay error 等指标 | 此前的讨论常把 gap 当成"一个东西" | 没有给出从 $G_{\text{dyn}}$、 $G_{\text{perc}}$ 到 $G_{\text{perf}}$ 的界；对 world model 和 TTT 覆盖很薄 |
 | 2026（未收录） | TwinRL（2602.09023）、D-REX（2603.01151）、SimFoundry（2606.28276）、Agentic Real2Sim（2607.19190） | 据本项目的调研记录：TwinRL 用数字孪生引导真实世界 RL；D-REX 用可微 real2sim 辨识质量；SimFoundry 从单段视频生成数字孪生和 digital cousins；Agentic Real2Sim 由 VLM agent 驱动 real2sim | 趋势是全自动化和闭环 | 都很新，代码开源情况未确认 |
 
 另有一条并行的路线：不用物理引擎，改用从数据（真实数据、仿真数据或两者）学出的 world model 当 simulator，例如 [UniSim](../05_intersections/unisim/notes.md)、[RWM](../05_intersections/robotic-world-model/notes.md)、[Ctrl-World](../05_intersections/ctrl-world/notes.md)、[World-Gymnast](../05_intersections/world-gymnast/notes.md)、[SimDist](../05_intersections/simdist/notes.md)。综述 Sec.6.3 把它列为开放问题，本项目把它放在 `05_intersections`。
@@ -108,7 +108,7 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 ### 阶段 0：本线之外的前置
 
 - [ ] MDP/POMDP、discounted return、belief：看 [RL 综述](../04_rl/survey-rl-overview/notes.md) 的相关章节
-- [ ] PPO 的 clipped objective、GAE（$\gamma,\lambda$）、value bootstrapping：看 [PPO](../04_rl/ppo/notes.md)
+- [ ] PPO 的 clipped objective、GAE（ $\gamma,\lambda$）、value bootstrapping：看 [PPO](../04_rl/ppo/notes.md)
 - [ ] Behavior cloning，以及 DAgger 为什么能缓解 covariate shift
 
 ### 阶段 1：框架与 sim-to-real 基础（overcoming the gap）
@@ -124,7 +124,7 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 **读完应能回答**
 1. reality gap（Eq.2）和 performance gap（Eq.4）分别依赖什么？为什么单独把 $\min_\pi G_{\text{perf}}$ 当训练目标会退化？
 2. DR 论文里，为什么目标物体自身的纹理也必须随机化？去掉训练时的 distractor 后，有干扰物时的误差从 1.8 cm 升到 7.2 cm，这说明网络学到了什么捷径？
-3. legged-gym 固定 batch $B=n_{robots}\cdot n_{steps}$ 时，$n_{robots}$ 过大和过小分别靠什么机制掉性能？time-out 时为什么要用 critic 做 bootstrap？
+3. legged-gym 固定 batch $B=n_{robots}\cdot n_{steps}$ 时， $n_{robots}$ 过大和过小分别靠什么机制掉性能？time-out 时为什么要用 critic 做 bootstrap？
 4. RMA 为什么回归 $z=\mu(e)$ 而不是物理参数 $e$？Table II 中 SysID 低于 Robust 说明了什么？部署时 RMA 一个权重都不更新，那它的"适应"具体是什么？
 5. legged-gym 和 RMA 分别靠什么对抗 reality gap？遇到训练随机化范围之外的环境时，两者各自会怎样失效？
 
@@ -132,7 +132,7 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 
 **前置 checklist**
 - [ ] REPS 或 CEM、CMA-ES 这类 KL 约束或采样式的黑箱优化；多元 Gaussian 与 KL divergence
-- [ ] 3D 重建基础：SfM/MVS、NeRF、3D Gaussian Splatting（$\mu$、$\Sigma$、opacity、SH）；URDF/USD 铰接、碰撞体凸分解
+- [ ] 3D 重建基础：SfM/MVS、NeRF、3D Gaussian Splatting（ $\mu$、 $\Sigma$、opacity、SH）；URDF/USD 铰接、碰撞体凸分解
 - [ ] 齐次变换、坐标系链式变换、ICP 配准
 - [ ] Diffusion Policy、BC-RNN-GMM 这类 BC policy；点云编码器（PointNet）
 - [ ] DINOv2、CLIP、Grounded-SAM 等视觉基础模型的用途
@@ -160,7 +160,7 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 
 **读完应能回答**
 1. ASAP 的 delta action model 在 RL 意义下的"环境""动作""奖励"分别是什么？为什么说它能绕开"对不可微仿真器求导"？为什么 fixed-point 和梯度法这种单步匹配在 Fig.11 里比不微调还差？
-2. DeltaDynamics（residual state）和 ASAP（residual action）在 open-loop 1.0 s 时，$E_{mpjpe}$ 和 $E_{g\text{-}mpjpe}$ 的排序为什么相反？这对"把 learned model 嵌进仿真器"有什么启示？
+2. DeltaDynamics（residual state）和 ASAP（residual action）在 open-loop 1.0 s 时， $E_{mpjpe}$ 和 $E_{g\text{-}mpjpe}$ 的排序为什么相反？这对"把 learned model 嵌进仿真器"有什么启示？
 3. PhysTwin 为什么要先用 zero-order 再用 first-order？只用 first-order 时，重建指标更好、future prediction 最差，说明了什么？
 4. X-Sim 的 object-centric reward 为什么能绕开 embodiment gap？InfoNCE 校准的正负样本怎么构造？机器人接触物体之后，仿真和真实的物体运动开始分叉，这时正样本对还成立吗？
 5. SimOpt、ASAP、PhysTwin 都用真实数据修仿真的动力学，它们分别修的是什么表示（参数分布、动作残差、稠密物理参数）？各自表达不了哪类 gap？
@@ -175,7 +175,7 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 **要读的笔记**：回到 [Reality Gap 综述](./survey-reality-gap/notes.md) 的 Sec.5（指标）和 Sec.6（开放问题），然后按兴趣读 05 交叉线：[PAD](../05_intersections/pad/notes.md)（部署时用自监督做适应）、[RWM](../05_intersections/robotic-world-model/notes.md)（神经网络 simulator 上跑 PPO）、[SimDist](../05_intersections/simdist/notes.md)（在仿真里预训练 world model，到真实世界只 finetune latent dynamics）、[Ctrl-World](../05_intersections/ctrl-world/notes.md)（用 world model 评测策略）。
 
 **读完应能回答**
-1. 构造一个 offline replay error 很大、SRCC 却很高的场景，再构造一个 replay error 很小、$G_{\text{perf}}$ 却很大的场景。
+1. 构造一个 offline replay error 很大、SRCC 却很高的场景，再构造一个 replay error 很小、 $G_{\text{perf}}$ 却很大的场景。
 2. 把本线每篇论文放到"适应在何处发生（仿真侧或 policy 侧）× 何时发生（部署前、两次部署之间、部署时）"的二维表里。哪一格还空着？
 3. 物理引擎加重建的 simulator 和 learned world model simulator 在"能否给出 privileged state 和 reward""compounding error""能覆盖的物体类型"三点上各有什么取舍？
 
@@ -185,11 +185,11 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 
 | 方法 | 主要针对的 gap | 从真实数据估计或构建什么 | 所需真实数据 | 优化方式 / 训练信号 | 发生时机 |
 |---|---|---|---|---|---|
-| [DR](./domain-randomization/notes.md) | 视觉（P） | 什么都不估计，$P(\xi)$ 手工设定 | 无 | — | 训练前 |
+| [DR](./domain-randomization/notes.md) | 视觉（P） | 什么都不估计， $P(\xi)$ 手工设定 | 无 | — | 训练前 |
 | [legged-gym](./legged-gym/notes.md) | 动力学、执行器、观测噪声 | 执行器模型：沿用 Hwangbo 2019 用真实电机数据训练的 LSTM actuator network | 执行器数据（仓库自带训练好的网络） | — | 训练前 |
 | [RMA](./rma/notes.md) | 动力学（摩擦、负载、电机强度、地形） | 不修改仿真；部署时从 0.5 s 历史推断 8 维 $z$ | 无 | 在仿真里监督回归 $z$ | 部署时（10 Hz 前向推断） |
 | [SimOpt](./simopt/notes.md) | 动力学 | Gaussian 参数分布 $p_\phi(\xi)$，full covariance | 每轮 3 条真机 rollout 的部分观测（关节角，加上 DART 跟踪的物体位置），不需要 reward | 加权 $\ell_1+\ell_2$ 轨迹 discrepancy 加 REPS（KL ≤ ε） | 两次部署之间，迭代进行 |
-| [RialTo](./rialto/notes.md) | 几何 / 运动学、点云观测 | 带铰接的 mesh 场景 $\mathcal S=\{\mathcal G,\mathcal K,\mathcal P\}$，物理参数取默认值 | 手机扫描，加约 15 条真实示范 | 3D reconstruction 加 GUI 人工切分；inverse distillation | 训练前（每场景约 2 天） |
+| [RialTo](./rialto/notes.md) | 几何 / 运动学、点云观测 | 带铰接的 mesh 场景 $\mathcal S=\lbrace\mathcal G,\mathcal K,\mathcal P\rbrace$，物理参数取默认值 | 手机扫描，加约 15 条真实示范 | 3D reconstruction 加 GUI 人工切分；inverse distillation | 训练前（每场景约 2 天） |
 | [SplatSim](./splatsim/notes.md) | 视觉（RGB） | 按刚体分割的 3DGS，以及 splat 坐标系到仿真坐标系的变换 | 场景的多视角视频，加每个物体的扫描 | 3DGS 重建，加手动分割、ICP 对齐、KNN 分割 link | 训练前 |
 | [ACDC](./acdc-digital-cousins/notes.md) | 几何 / 语义 | 从 BEHAVIOR-1K 检索出的一组 cousins 及其位姿、尺度 | 单张 RGB（加相机内参） | CLIP 加 DINOv2 最近邻的层级检索，GPT 精修 | 训练前（抽取约 7 s/物体，匹配约 20 s/cousin，生成不到 30 s/场景） |
 | [SIMPLER](./simpler/notes.md) | 控制 + 视觉 | PD 刚度和阻尼；green screen 背景；物体纹理 | 现有数据集里的示范轨迹，加真实首帧图像 | open-loop 回放加 simulated annealing；nvdiffrast 位姿精修 | 评测前 |
@@ -208,7 +208,7 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 | [RialTo](./rialto/notes.md) | state 空间 PPO+BC，再用 DAgger 加真实 co-training 蒸馏成点云 policy | 点云 | 否 | 训练 | RTX 2080 或 3090，每个任务约 2 天 3 h | 6 个任务加 in-the-wild，每格约 10 次；平均 91/77/75% 对 BC 的 25/11/5% |
 | [SplatSim](./splatsim/notes.md) | Diffusion Policy（BC） | 2 路 RGB 加末端位姿 | 否 | 训练 | 只报告了部署用的 3080Ti | 4 个任务 × 40 次，86.25% |
 | [ACDC](./acdc-digital-cousins/notes.md) | BC-RNN-GMM | 点云 | 否 | 训练 | 未报告 | 1 个任务（开柜门）20 次：cousin 90%，twin 25% |
-| [SIMPLER](./simpler/notes.md) | 不训练，评测现成策略 | RGB（被测策略的输入） | — | 评测 | 1×RTX 4090，每秒 3.5k 仿真步 | 约 1500 个真实 episode 作对照；Bridge MMRV 0.014，$r=0.890$ |
+| [SIMPLER](./simpler/notes.md) | 不训练，评测现成策略 | RGB（被测策略的输入） | — | 评测 | 1×RTX 4090，每秒 3.5k 仿真步 | 约 1500 个真实 episode 作对照；Bridge MMRV 0.014， $r=0.890$ |
 | [ASAP](./asap/notes.md) | PPO 预训练，再在修正后的仿真里 RL 微调 | 本体感知加 phase | 否（部署时去掉 $\pi^\Delta$） | 训练 | 未报告 | G1 上 2 个动作，只和 Vanilla 比 |
 | [PhysTwin](./phystwin/notes.md) | 不训练 policy，只有定性的 model-based planning | — | — | 仿真 / 规划 | 未报告（README：CMA-ES 约 12 min，first-order 约 5 min） | 没有 sim→real 的定量结果 |
 | [X-Sim](./x-sim/notes.md) | privileged-state PPO，蒸馏成 RGB Diffusion Policy，再加 InfoNCE | 单张 RGB | 部署后离线再训练一次 | 训练 | 未报告（1,024 个并行环境） | 5 个任务 × 10 次，平均 task progress 0.906（未校准 0.832） |
@@ -221,11 +221,11 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 ## 7. 开放问题与争议
 
 1. **追求高保真的 digital twin，还是追求多样的分布？** 支持 twin 的证据：[RialTo](./rialto/notes.md) Fig.7 里，在 4 个 Objaverse 抽屉上训练的策略到真实目标抽屉只有 10%，twin 策略是 90%，混入合成资产也没有提升（Table XI）；[SIMPLER](./simpler/notes.md) 的评测中，Visual Matching 也优于 DR 风格的 Variant Aggregation。支持多样性的证据：[ACDC](./acdc-digital-cousins/notes.md) Fig.5 里 twin 25%、cousin 90%；而在全部资产上训练（naive DR）在分布内反而最差。一个可能的调和是训练和评测的需求不同：评测时被测策略没见过随机化分布，训练时则需要覆盖。但两边的真实证据都薄，ACDC 只有 1 个任务、每策略 20 次，RialTo 每格约 10 次，目前还缺一个在同一任务、同一真实场景上对比 twin、cousins 和 DR 的受控实验。
-2. **调参数、学残差，还是学整个模型？** [SimOpt](./simopt/notes.md) 的参数化仿真修不了结构性误差；它的目标在理论上的最优解是 Dirac 分布，最终保留多少随机化宽度只取决于 KL 步长和迭代次数。[RMA](./rma/notes.md) Table II 里，估物理参数的 SysID（56.5%）不如不做估计的 Robust（62.4%），这和综述 Sec.6.1 的 objective mismatch 是一致的：模型准不准，和它对控制是否有用，是两回事。[ASAP](./asap/notes.md) 在 open-loop 1.0 s 上，$E_{g\text{-}mpjpe}$ 为 37.9，远低于 SysID 的 77.6 和 DeltaDynamics 的 68.1；但它的 SysID 基线只在每个参数 3 个离散值中搜索，偏弱，而且动作空间的残差表达不了外部扰动和接触差异。[PhysTwin](./phystwin/notes.md) 显式辨识物理参数，可只能辨识类似 $k/m$ 的比值，也没验证辨识对了能不能带来更好的迁移。再往前一步，就是 05 线的 [RWM](../05_intersections/robotic-world-model/notes.md) 和 [SimDist](../05_intersections/simdist/notes.md)，它们把整个 dynamics 换成神经网络，于是 compounding error 成了主要问题。
-3. **用什么指标衡量"仿真修好了"？** SimOpt 附录 A 说 closed-loop 匹配能给出有意义的参数更新，open-loop 重放则不能，但只有定性描述。SIMPLER 用 open-loop 回放辨识 PD。ASAP 发现单步匹配不如 RL 做的多步匹配。综述指出，offline replay error 在 chaotic 或接触丰富的系统里即使参数完全正确也会发散。什么样的 gap 指标既便宜、又能预测闭环的 $G_{\text{perf}}$，目前没有答案。综述也没有给出从 $G_{\text{dyn}}$、$G_{\text{perc}}$ 到 $G_{\text{perf}}$ 的界，所以没法判断先缩小哪一类 gap 最划算。
+2. **调参数、学残差，还是学整个模型？** [SimOpt](./simopt/notes.md) 的参数化仿真修不了结构性误差；它的目标在理论上的最优解是 Dirac 分布，最终保留多少随机化宽度只取决于 KL 步长和迭代次数。[RMA](./rma/notes.md) Table II 里，估物理参数的 SysID（56.5%）不如不做估计的 Robust（62.4%），这和综述 Sec.6.1 的 objective mismatch 是一致的：模型准不准，和它对控制是否有用，是两回事。[ASAP](./asap/notes.md) 在 open-loop 1.0 s 上， $E_{g\text{-}mpjpe}$ 为 37.9，远低于 SysID 的 77.6 和 DeltaDynamics 的 68.1；但它的 SysID 基线只在每个参数 3 个离散值中搜索，偏弱，而且动作空间的残差表达不了外部扰动和接触差异。[PhysTwin](./phystwin/notes.md) 显式辨识物理参数，可只能辨识类似 $k/m$ 的比值，也没验证辨识对了能不能带来更好的迁移。再往前一步，就是 05 线的 [RWM](../05_intersections/robotic-world-model/notes.md) 和 [SimDist](../05_intersections/simdist/notes.md)，它们把整个 dynamics 换成神经网络，于是 compounding error 成了主要问题。
+3. **用什么指标衡量"仿真修好了"？** SimOpt 附录 A 说 closed-loop 匹配能给出有意义的参数更新，open-loop 重放则不能，但只有定性描述。SIMPLER 用 open-loop 回放辨识 PD。ASAP 发现单步匹配不如 RL 做的多步匹配。综述指出，offline replay error 在 chaotic 或接触丰富的系统里即使参数完全正确也会发散。什么样的 gap 指标既便宜、又能预测闭环的 $G_{\text{perf}}$，目前没有答案。综述也没有给出从 $G_{\text{dyn}}$、 $G_{\text{perc}}$ 到 $G_{\text{perf}}$ 的界，所以没法判断先缩小哪一类 gap 最划算。
 4. **视觉 gap 应该写实化、随机化，还是换模态？** [DR](./domain-randomization/notes.md) 从没和写实渲染做过对照。[SplatSim](./splatsim/notes.md) 缺一个 mesh 渲染加 DR 的 Sim2Real 对照，而不加增强时成功率只有 21%，可见光靠 3DGS 不够。RialTo 和 ACDC 用点云绕开了纹理问题。[X-Sim](./x-sim/notes.md) 的 InfoNCE 校准平均带来 7.4 个百分点，但每任务只有 10 次试验，分数粒度是 3.3%，这个提升是否显著存疑。
 5. **real-to-sim 评测环境能不能当训练环境用？** SIMPLER 只验证了"被测策略从没见过这个仿真器"的情形。[π_RL](../04_rl/pi-rl/notes.md) 直接在 SIMPLER 上做 RL，同时承认明显的视觉 domain shift 仍没解决。[World-Gymnast](../05_intersections/world-gymnast/notes.md) 报告，在 world model 里做 RL，4 个任务中有 3 个的真实成功率高于在 SIMPLER 里做 RL。RialTo 里从零开始的 RL 会钻关节误差的漏洞，toaster 任务上的 62% 迁移不到真机，说明 policy 一旦对仿真做优化就会去 exploit 它的误差。这就是 Goodhart 问题。learned world model 评测器（[Ctrl-World](../05_intersections/ctrl-world/notes.md)）能否在 MMRV 这个口径下达到或超过 SIMPLER，也还没有人比过。
-6. **适应应该发生在何处、何时？** 离线构建 twin 的有 RialTo（约 2 天）和 PhysTwin；在两次部署之间修正的有 SimOpt 和 ASAP；部署时做前向推断的是 RMA；部署后离线再训练的是 X-Sim。没有一篇在部署时对仿真参数、$\pi^\Delta$ 或 policy 做梯度更新。RMA 一旦超出训练支撑集就无法继续学习。ASAP 的作者把 delta action model 的 few-shot 适应列为未来工作，但没说在部署时做；PhysTwin 的笔记指出，部署时用新观测持续更新物理参数 $\alpha$（online system identification）是自然的延伸，论文没有做。TTT 式的在线更新能否扩大适应范围，是本项目最直接的交叉问题，可参照 [PAD](../05_intersections/pad/notes.md) 和 [SimDist](../05_intersections/simdist/notes.md)。
+6. **适应应该发生在何处、何时？** 离线构建 twin 的有 RialTo（约 2 天）和 PhysTwin；在两次部署之间修正的有 SimOpt 和 ASAP；部署时做前向推断的是 RMA；部署后离线再训练的是 X-Sim。没有一篇在部署时对仿真参数、 $\pi^\Delta$ 或 policy 做梯度更新。RMA 一旦超出训练支撑集就无法继续学习。ASAP 的作者把 delta action model 的 few-shot 适应列为未来工作，但没说在部署时做；PhysTwin 的笔记指出，部署时用新观测持续更新物理参数 $\alpha$（online system identification）是自然的延伸，论文没有做。TTT 式的在线更新能否扩大适应范围，是本项目最直接的交叉问题，可参照 [PAD](../05_intersections/pad/notes.md) 和 [SimDist](../05_intersections/simdist/notes.md)。
 7. **真实数据的获取成本与安全**。ASAP 需要 MoCap，采数据时损坏了两台 G1；SimOpt 中间轮次的 policy 直接上真机；X-Sim 需要物体 mesh 和场景扫描，作者也承认离 in-the-wild 的互联网视频还很远；PhysTwin 需要 3 台标定过的 RGB-D 相机；RialTo 的用户研究没有把手写成功判据、设定随机化范围这些人工成本算进去。2026 年的 SimFoundry、Agentic Real2Sim 在推进全自动化，效果还需要跟进。
 8. **证据规模与论文内部的一致性**。这条线的真实世界实验普遍很小，每格多在 5–40 次，基本没有置信区间，而且好几篇的正文和图表数字对不上：RMA Fig.3 的 caption 与图内表格，像是把两个任务对调了；SIMPLER Table I 的 Drawer 列与 Table IV 不一致；SplatSim 的 Assembly 一处写 85%、一处写 95%，Real2Real 按表平均是 96.25% 而不是 97.5%；ASAP 的噪声基线正文写 150、图里是 173；RialTo 文中的 3.5× 从 Fig.6 算不出来。读数字时以表格和源码为准，详见各篇笔记的"局限"一节。
 
@@ -259,24 +259,24 @@ reducing 一侧还有 "Choice of Modalities and Representations" 和 "Design cho
 
 ### ① legged-gym，并在其上做 sim-to-sim gap 审计
 
-- **为什么先复现它**：官方代码完整，单卡 20 分钟出结果，成本最低。它的配方（4096 个环境、每次迭代 24 步、地形课程）被 [ASAP](./asap/notes.md)、[RWM](../05_intersections/robotic-world-model/notes.md)、[SimDist](../05_intersections/simdist/notes.md) 沿用或对应。它部署时完全不做适应，所以是 RMA、PAD/TTT、SimDist 这类"适应"假设最自然的零适应基线。综述笔记里设计的 gap 审计实验（$G_{\text{perf}}$、offline replay error、SRCC）也可以直接搭在它上面。
+- **为什么先复现它**：官方代码完整，单卡 20 分钟出结果，成本最低。它的配方（4096 个环境、每次迭代 24 步、地形课程）被 [ASAP](./asap/notes.md)、[RWM](../05_intersections/robotic-world-model/notes.md)、[SimDist](../05_intersections/simdist/notes.md) 沿用或对应。它部署时完全不做适应，所以是 RMA、PAD/TTT、SimDist 这类"适应"假设最自然的零适应基线。综述笔记里设计的 gap 审计实验（ $G_{\text{perf}}$、offline replay error、SRCC）也可以直接搭在它上面。
 - **算力**：论文用 1 块 RTX A6000 加 i9-11900k；rough 地形 4096 个机器人 headless 时占 6 GB 显存，不到 20 min 训完，平地不到 4 min。依赖 Isaac Gym Preview 3、rsl_rl v1.0.2、Python 3.6–3.8。README 说环境已迁移到 Isaac Lab，换过去的话数字不一定对得上。
 - **最小实验**：
   1. `anymal_c_flat` headless 训练，核对"平地不到 4 min"和 reward 曲线的形状。
   2. 复现 Fig.10：time-out bootstrap 开和关各跑一组，预期 total reward 差 10%–20%，开的那组 critic loss 更低。
-  3. gap 审计：把标称环境当作 $\mathcal M_s$；再做一个伪真实环境 $\mathcal M_r$，加执行器一阶低通和延迟、质量与摩擦偏置、有时间相关性的观测噪声。分别用标称参数、DR、先 sysID 再训练三种方式训练 PPO，计算各组的 $G_{\text{perf}}$、$J_{\mathcal M_r}$、offline replay error，以及多个 checkpoint 上的 SRCC。
+  3. gap 审计：把标称环境当作 $\mathcal M_s$；再做一个伪真实环境 $\mathcal M_r$，加执行器一阶低通和延迟、质量与摩擦偏置、有时间相关性的观测噪声。分别用标称参数、DR、先 sysID 再训练三种方式训练 PPO，计算各组的 $G_{\text{perf}}$、 $J_{\mathcal M_r}$、offline replay error，以及多个 checkpoint 上的 SRCC。
   4. 可选：在同一底座上实现 RMA 的 Phase 1 和 Phase 2（原论文没有官方代码），比较 Expert、RMA、Robust 的相对排序。
 
 ### ② ASAP sim-to-sim（IsaacGym → Genesis）
 
 - **为什么**：在本线里，针对机器人自身动力学、用真机轨迹做对齐、而且三个阶段（motion tracking、delta action 训练、微调）都开源的方法只有它；SimOpt 没有代码，PhysTwin 针对的是被操作的可形变物体。sim-to-sim 设定不需要真机。论文自带 SysID（调参数）和 DeltaDynamics（学 residual state，相当于一个嵌进仿真器的 world model）两个对照，正好能让"调参数、学残差动作、学残差状态"三条路线同台比较，第 7 节第 2 条的争议可以在这里做实验。论文正文和图表有多处数字不一致，基线数字本身也需要复现来确认。
 - **算力**：论文没有报告。README 示例中，motion tracking 和微调用 `num_envs=4096`，delta action 训练用 `num_envs=5000`。需要 IsaacGym Preview 4（Python 3.8）和 Genesis 0.2.1。
-- **最小实验**：选 1–3 个 medium 或 hard 动作，在 IsaacGym 里预训练 tracking policy；把 Genesis 当作"真实"环境 rollout 约 430 条轨迹（Fig.10a 显示 430 条时 closed-loop MPJPE 已经到 104.95，不过那张图用的是 IsaacSim 数据）；用 horizon 1.0 s、action norm 权重 0.1 训练 $\pi^\Delta$；冻结后微调 policy，回到 Genesis 评测。对比 Vanilla、随机动作噪声微调（$\beta=0.1$）和 ASAP，并复现 Table III 在 0.25、0.5、1.0 s 的 open-loop 误差排序。验收标准：closed-loop MPJPE 明显低于 Vanilla 和噪声微调。
+- **最小实验**：选 1–3 个 medium 或 hard 动作，在 IsaacGym 里预训练 tracking policy；把 Genesis 当作"真实"环境 rollout 约 430 条轨迹（Fig.10a 显示 430 条时 closed-loop MPJPE 已经到 104.95，不过那张图用的是 IsaacSim 数据）；用 horizon 1.0 s、action norm 权重 0.1 训练 $\pi^\Delta$；冻结后微调 policy，回到 Genesis 评测。对比 Vanilla、随机动作噪声微调（ $\beta=0.1$）和 ASAP，并复现 Table III 在 0.25、0.5、1.0 s 的 open-loop 误差排序。验收标准：closed-loop MPJPE 明显低于 Vanilla 和噪声微调。
 
 ### ③ SIMPLER（real-to-sim 评测）
 
 - **为什么**：难度 easy，是本线唯一的评测基线。MMRV 和 Pearson 可以原样用来给 learned world model 评测器（[Ctrl-World](../05_intersections/ctrl-world/notes.md)、[World-Gymnast](../05_intersections/world-gymnast/notes.md)）打分，是比较"物理 real2sim"和"learned simulator"两条路线的现成口径。SimplerEnv 也已经是 VLA-RL 论文的常用 benchmark，例如 [π_RL](../04_rl/pi-rl/notes.md)。
 - **算力**：论文报告单张 RTX 4090 每秒 3.5k 仿真步。README 建议用 RTX 卡，因为部分环境依赖 ray tracing。需要 Python 3.10/3.11 和 ManiSkill2_real2sim；RT-1 要 TF 2.15，Octo 要 JAX，注意两者的 CUDA 版本冲突。RT-2-X 没有公开。真实侧没有机器人，直接用 Table IV/V 的真实成功率。
-- **最小实验**：在 Bridge VisMatch 的 4 个任务上跑 RT-1-X、Octo-Base、Octo-Small，Octo 取 3 个 seed，每个任务 24 个初始配置；按 Eq.1–2 计算 MMRV 和 Pearson，目标是复现 MMRV≈0.014、$r\approx0.890$ 的量级。再做两个消融：去掉 green screen（背景换成 ReplicaCAD），或者把 PD 参数换回非 SysID 的值，看 MMRV 是否像 Table II/III 那样变差。注意 Table I 和 Table IV 的 Drawer 列不一致，以 Table IV 为准。
+- **最小实验**：在 Bridge VisMatch 的 4 个任务上跑 RT-1-X、Octo-Base、Octo-Small，Octo 取 3 个 seed，每个任务 24 个初始配置；按 Eq.1–2 计算 MMRV 和 Pearson，目标是复现 MMRV≈0.014、 $r\approx0.890$ 的量级。再做两个消融：去掉 green screen（背景换成 ReplicaCAD），或者把 PD 参数换回非 SysID 的值，看 MMRV 是否像 Table II/III 那样变差。注意 Table I 和 Table IV 的 Drawer 列不一致，以 Table IV 为准。
 
 **备选**：[PhysTwin](./phystwin/notes.md) 用官方数据只跑 inference 加 `evaluate.sh`，一张消费级 GPU 就能对上 Table 1，适合往可形变方向走的人。[X-Sim](./x-sim/notes.md) 可以纯仿真复现 PPO、Diffusion Policy，再在伪真实域上做 InfoNCE 校准，适合操作方向。[RialTo](./rialto/notes.md) 依赖旧版 Isaac Sim 2022.2.1，每个任务约 2 天，难度 hard，不建议作为第一个复现。

@@ -40,7 +40,7 @@
 1. **两类 simulator 面对的是同一种 gap。**
    - 物理仿真与真实之间的差异叫 reality gap。[Reality Gap 综述](./03_real2sim2real/survey-reality-gap/notes.md)把 sim-to-real 的目标定为缩小 $G_{\text{perf}}=|J_{\mathcal M_s}(\pi)-J_{\mathcal M_r}(\pi)|$。
    - learned simulator 里对应的是 model error，policy 去利用这种误差就是 model exploitation。[World Models](./01_world_model/world-models/notes.md) 在 τ=0.1 时梦境得分 2086，真实得分只有 193，比随机策略还低。[Ctrl-World](./05_intersections/ctrl-world/notes.md) 的想象成功率对真机成功率的回归线是 $y=0.81x-0.11$。
-   - [05 README](./05_intersections/README.md) 的总结是：learned simulator 没有消除 gap，只是把 sim-to-real gap 换成了 world model 与真实之间的误差。所以 03 的度量工具（$G_{\text{perf}}$、SRCC、SIMPLER 的 MMRV）可以直接拿来评估 world model。
+   - [05 README](./05_intersections/README.md) 的总结是：learned simulator 没有消除 gap，只是把 sim-to-real gap 换成了 world model 与真实之间的误差。所以 03 的度量工具（ $G_{\text{perf}}$、SRCC、SIMPLER 的 MMRV）可以直接拿来评估 world model。
 
 2. **"用真实数据修仿真"和"从数据学模型"处在同一条连续谱上。**
    - [SimOpt](./03_real2sim2real/simopt/notes.md) 只调参数分布；[ASAP](./03_real2sim2real/asap/notes.md) 学动作空间的残差。
@@ -204,14 +204,14 @@ graph LR
 - **细节**：[04 README](./04_rl/README.md) 第 4 节的阶段 0–1。
 - **阶段结束自测**
   1. 用了 experience replay，为什么就必须 off-policy？DQN 2013 版算 TD target 用的是哪组参数，和 Nature 版有什么不同？
-  2. 设 ε=0.2、$\hat A<0$，$r_t=1.5$ 和 $r_t=0.7$ 的样本梯度分别是否为 0？PPO 的 clip 能不能保证 KL ≤ δ？
+  2. 设 ε=0.2、 $\hat A<0$， $r_t=1.5$ 和 $r_t=0.7$ 的样本梯度分别是否为 0？PPO 的 clip 能不能保证 KL ≤ δ？
   3. PPO 用 likelihood-ratio 梯度，SAC 用 pathwise（重参数化）梯度。两者分别要求"策略似然可算"还是"critic 可微"？
   4. 为什么样本便宜时（大规模并行仿真）常用 PPO，样本贵时（真机）常用 SAC 系方法？
 
 ### 阶段 1：reality gap 与重建出来的 simulator（4 周）
 
 - **目标**：建立 sim-to-real 的问题框架，包括 reality gap 与 performance gap 的区别、reducing 与 overcoming 两类做法；掌握"仿真里用 PPO 训练、真机上部署"的基本配方；看清真实数据进入仿真的几种方式（参数、残差、场景、外观）和评测口径。
-- **本阶段引入的概念**：reality gap、$G_{\text{perf}}$、domain randomization、system identification、privileged information 与 teacher-student 蒸馏、behavior cloning（BC）与 DAgger、digital twin / digital cousin、3D Gaussian Splatting、delta action（residual）model、REPS / CMA-ES 这类黑箱优化与可微仿真（SimOpt、PhysTwin 用）、real-to-sim 评测、MMRV。
+- **本阶段引入的概念**：reality gap、 $G_{\text{perf}}$、domain randomization、system identification、privileged information 与 teacher-student 蒸馏、behavior cloning（BC）与 DAgger、digital twin / digital cousin、3D Gaussian Splatting、delta action（residual）model、REPS / CMA-ES 这类黑箱优化与可微仿真（SimOpt、PhysTwin 用）、real-to-sim 评测、MMRV。
 - **用到**：阶段 0 的 PPO、GAE、POMDP、trust region（SimOpt 的 KL 约束）。
 - **本阶段先当黑箱用的**：SplatSim、X-Sim 的学生策略是 Diffusion Policy（一种 BC 策略类），这里只需知道它从示范学动作分布；扩散模型本身到阶段 2（DIAMOND）和阶段 4（DPPO）再展开。
 - **要读**：[Reality Gap 综述](./03_real2sim2real/survey-reality-gap/notes.md)（先只读 Sec.2–4）→ [Domain Randomization](./03_real2sim2real/domain-randomization/notes.md) → [legged-gym](./03_real2sim2real/legged-gym/notes.md) → [RMA](./03_real2sim2real/rma/notes.md) → [SimOpt](./03_real2sim2real/simopt/notes.md) → [RialTo](./03_real2sim2real/rialto/notes.md) → [SplatSim](./03_real2sim2real/splatsim/notes.md) → [ACDC](./03_real2sim2real/acdc-digital-cousins/notes.md) → [SIMPLER](./03_real2sim2real/simpler/notes.md) → [ASAP](./03_real2sim2real/asap/notes.md) → [PhysTwin](./03_real2sim2real/phystwin/notes.md) → [X-Sim](./03_real2sim2real/x-sim/notes.md)
@@ -234,7 +234,7 @@ graph LR
 - **用到**：阶段 0 的 actor-critic、pathwise 梯度、VAE；阶段 1 的 reality gap、DR 和 legged-gym 配方。
 - **要读**：[WM for Robot Learning 综述](./01_world_model/survey-wm-robot-learning/notes.md)（只扫 Fig.2 和 Sec.3.1 当地图，精读放到阶段 5；它以 VLA 为中心，VLA 到阶段 4 才系统引入，这里遇到只需知道它是"视觉-语言-动作"策略）→ [World Models](./01_world_model/world-models/notes.md) → [Dreamer](./01_world_model/dreamer/notes.md) → [DreamerV3](./01_world_model/dreamerv3/notes.md) → [TD-MPC2](./01_world_model/tdmpc2/notes.md) → [DIAMOND](./01_world_model/diamond/notes.md) → [DayDreamer](./05_intersections/daydreamer/notes.md) → [Robotic World Model](./05_intersections/robotic-world-model/notes.md)
 - **配套动手**
-  - CPU：用阶段 1 的 Hopper 数据训练一个 GRU world model，比较 teacher forcing（$N=1$）与自回归训练（$M=32$、$N=8$）的多步预测误差曲线，看能否得到 RWM Fig. S8 的趋势（$N$ 从 1 到 2 到 8，误差从 3.99 到 1.91 到 0.47）。这是 RWM 笔记给出的无 GPU 退路。
+  - CPU：用阶段 1 的 Hopper 数据训练一个 GRU world model，比较 teacher forcing（ $N=1$）与自回归训练（ $M=32$、 $N=8$）的多步预测误差曲线，看能否得到 RWM Fig. S8 的趋势（ $N$ 从 1 到 2 到 8，误差从 3.99 到 1.91 到 0.47）。这是 RWM 笔记给出的无 GPU 退路。
   - GPU：复现 ③ TD-MPC2（先评估 checkpoint，再单任务训练）。
 - **细节**：[01 README](./01_world_model/README.md) 第 5 节的阶段 1–2；[05 README](./05_intersections/README.md) 第 6 节的阶段 1–2。
 - **阶段结束自测**
@@ -249,10 +249,10 @@ graph LR
 - **目标**：分清本项目里 "TTT" 的三种用法（分布偏移下的 TTT / TTA、TTT 作为序列建模层、LLM 的 TTT 与 test-time RL）；掌握自监督 TTT 和 entropy TTA 的机制与失败方式；读懂 PAD 和 SimDist 这两个具身先例；理解 fast weights 和 KV-binding 争议，为"world model 的长程记忆"这个问题做准备。
 - **本阶段引入的概念**：TTA / TTL / TTS、Update × Compute 两根轴、self-supervised auxiliary task、joint training、梯度相关性条件（TTT 的 Theorem 1）、entropy minimization、inverse dynamics 与 forward dynamics 自监督任务（PAD）、episodic 与 online / continual 适应、fast weights、inner loop / outer loop、mini-batch TTT、与 linear attention 的等价性、DiT 与 latent video diffusion 的基本结构（读 One-Minute Video 用）。
 - **用到**：阶段 0 的 SAC；阶段 1 的 DR、RMA、system identification；阶段 2 的 RSSM、TD-MPC2、MPPI 和扩散模型。SimDist 的 RLPD / IQL 基线可以等阶段 4 之后再回看。
-- **本线之外的前置**：Transformer 的 self-attention 与 KV cache；linear attention 的递归形式（$S_t=S_{t-1}+v_tk_t^\top$）；BatchNorm 的统计量与仿射参数（读 Tent 用）。清单见 [02 README](./02_test_time_training/README.md) 第 5 节阶段 1–2 的前置 checklist。
+- **本线之外的前置**：Transformer 的 self-attention 与 KV cache；linear attention 的递归形式（ $S_t=S_{t-1}+v_tk_t^\top$）；BatchNorm 的统计量与仿射参数（读 Tent 用）。清单见 [02 README](./02_test_time_training/README.md) 第 5 节阶段 1–2 的前置 checklist。
 - **要读**：[TTI 综述](./02_test_time_training/survey-test-time-intelligence/notes.md)（只读 Sec.2 和 Sec.3.1）→ [TTT](./02_test_time_training/ttt-self-supervised/notes.md) → [Tent](./02_test_time_training/tent/notes.md) → [PAD](./05_intersections/pad/notes.md) → [SimDist](./05_intersections/simdist/notes.md) → [TTT layers](./02_test_time_training/ttt-layers/notes.md) → [Titans](./02_test_time_training/titans/notes.md) → [One-Minute Video](./02_test_time_training/ttt-one-minute-video/notes.md) → [LaCT](./02_test_time_training/lact/notes.md) → [TTT-E2E](./02_test_time_training/ttt-e2e/notes.md) → [KV-binding ≈ linear attention](./02_test_time_training/ttt-kv-linear-attention/notes.md)（读完前面几篇再批判性地读）
 - **配套动手**
-  - CPU（不到 1 小时，出自 [02 README](./02_test_time_training/README.md) 9.2）：用 numpy 实现 TTT layers 的 primal 与 dual form，检查两者输出一致；验证 $W_0=0$、$\eta=1/2$、batch GD 时等价于 linear attention；验证在 Frobenius 损失下，"对 $v$ 做梯度上升"等价于"对 $-v$ 做梯度下降"。
+  - CPU（不到 1 小时，出自 [02 README](./02_test_time_training/README.md) 9.2）：用 numpy 实现 TTT layers 的 primal 与 dual form，检查两者输出一致；验证 $W_0=0$、 $\eta=1/2$、batch GD 时等价于 linear attention；验证在 Frobenius 损失下，"对 $v$ 做梯度上升"等价于"对 $-v$ 做梯度下降"。
   - GPU：复现 ② PAD。备选：TTT 加 Tent 的 CIFAR-10-C harness（见 §5 备选）。
   - 有余力（§6 Q1 的最小版本）：在阶段 1 的伪真实 Hopper 上，把阶段 2 的 GRU world model 的转移预测损失当作自监督信号，先测它的梯度与控制目标梯度的相关性，再决定要不要做部署期更新。
 - **细节**：[02 README](./02_test_time_training/README.md) 第 5 节的阶段 0–2 和阶段 4。
@@ -261,7 +261,7 @@ graph LR
   2. 推导 $\partial H/\partial z_j=-p_j(\log p_j+H)$，用它解释 Tent 为什么会放大自信的错误。batch size 为 1、输入是时间相关的单帧流（机器人部署就是这样）时，Tent 会出什么问题？
   3. PAD 为什么选 inverse dynamics，而不是特征空间里的 forward dynamics？TD-MPC2 又是靠什么避免同样的坍缩的？（V-JEPA 2 的 EMA teacher 加 stop-gradient 留到阶段 5 再对照。）
   4. SimDist 的 Eq.3 与 PAD 的部署期更新，在监督信号、更新对象、更新频率上有哪些异同？为什么解冻 encoder 会崩（Fig.10）？
-  5. 线性 $f$、batch GD、$W_0=0$ 时，TTT layer 为什么等价于 linear attention？换成 mini-batch GD 后是哪一项打破了等价？
+  5. 线性 $f$、batch GD、 $W_0=0$ 时，TTT layer 为什么等价于 linear attention？换成 mini-batch GD 后是哪一项打破了等价？
   6. One-Minute Video 的 non-causal mini-batch 和双向扫描，搬到逐帧、带 action 条件的自回归 world model 上会出什么问题？
 
 ### 阶段 4：预训练策略的 RL 后训练与 test-time RL（4 周）
@@ -423,10 +423,10 @@ graph LR
   - 纯 CPU 就能跑，是唯一能完整在本机做完的一项。
 - **算力**：论文没有报告硬件。2×64 MLP、每个任务 1M 步，单机 CPU 可跑（笔记的判断）。整组实验是 3 种设置 × 2 个环境 × 3 个 seed。
 - **最小实验**：
-  1. 在 Hopper 和 HalfCheetah 上比较三种设置：不加约束、clip ε=0.2、adaptive KL（$d_{targ}=0.01$）。
+  1. 在 Hopper 和 HalfCheetah 上比较三种设置：不加约束、clip ε=0.2、adaptive KL（ $d_{targ}=0.01$）。
   2. 超参数用论文 Table 3：T=2048，Adam 3e-4，10 个 epoch，minibatch 64，γ=0.99，λ=0.95。
   3. 每次更新记录 approx-KL 和 clip fraction。
-  4. 复现判据是定性一致：不加约束时 HalfCheetah 崩溃；$L^{CLIP}$ 在更新点附近达到峰值。Gymnasium 的环境版本和论文不同，绝对数值不可直接比。
+  4. 复现判据是定性一致：不加约束时 HalfCheetah 崩溃； $L^{CLIP}$ 在更新点附近达到峰值。Gymnasium 的环境版本和论文不同，绝对数值不可直接比。
 - **复现后的用途**：阶段 1 的 sim-to-sim $G_{\text{perf}}$ 小实验、阶段 2 的 GRU world model 数据都复用这份代码。
 
 ### ② PAD：部署期自监督适应
@@ -464,7 +464,7 @@ graph LR
 - **算力**：单卡 RTX 4090。RWM 约 1 小时（Table 1 写的是 50 min），MBPO-PPO 5 分钟，三个 $N$ 的消融约 3 小时。需要 Linux 或 Windows 加 NVIDIA RTX GPU，Isaac Sim 不支持 macOS。
 - **最小实验**：
   1. 用现成的 ANYmal-D flat 速度策略采集轨迹。
-  2. 固定 $M=32$，比较 $N\in\{1,2,8\}$，看能否复现 Fig. S8 的误差趋势（3.99 → 1.91 → 0.47）。
+  2. 固定 $M=32$，比较 $N\in\lbrace1,2,8\rbrace$，看能否复现 Fig. S8 的误差趋势（3.99 → 1.91 → 0.47）。
   3. 跑官方的 pretrain → MBPO-PPO，把 ground-truth reward 曲线和 Fig. 5 左图对照。
   4. 顺带记录"预测 reward − 真实 reward"随训练的变化。
 - **没有 GPU 时**：阶段 2 的 CPU 练习（MuJoCo 上的 GRU world model 加 AR 损失）可以替代第 2 步，验证定性差异。
@@ -491,7 +491,7 @@ graph LR
 - **算力**：论文报告单张 RTX 4090 每秒 3.5k 仿真步。README 建议用 RTX 卡，因为部分环境依赖 ray tracing。需要 Python 3.10/3.11；RT-1 要 TF 2.15，Octo 要 JAX，注意两者的 CUDA 版本冲突。RT-2-X 没有公开。真实一侧没有机器人，直接用论文 Table IV/V 的真实成功率。
 - **最小实验**：
   1. 在 Bridge VisMatch 的 4 个任务上跑 RT-1-X、Octo-Base、Octo-Small（Octo 取 3 个 seed），每个任务 24 个初始配置。
-  2. 按 Eq.1–2 计算 MMRV 和 Pearson，目标是 MMRV≈0.014、$r\approx0.890$ 的量级。
+  2. 按 Eq.1–2 计算 MMRV 和 Pearson，目标是 MMRV≈0.014、 $r\approx0.890$ 的量级。
   3. 消融：去掉 green screen，或者把 PD 参数换回非 SysID 的值，看 MMRV 是否变差。
   4. Table I 与 Table IV 的 Drawer 列不一致，以 Table IV 为准。
 
@@ -507,7 +507,7 @@ graph LR
 | DPPO | 做生成式策略 RL 或阶段 4 练习时 | L40 上 Can-state 每轮迭代 42.0 s，一次运行约 35 分钟（按图估算） |
 | TTRL | 做 §6 Q9（伪奖励质量）时 | 8×A100 80GB，时长未报告 |
 | SimpleVLA-RL | 任何"用 world model 替代仿真器做 VLA RL"的假设之前都必须先有它的数字 | 8×A800 80GB，时长未报告 |
-| WMPO（官方 checkpoint，只跑 Coffee_D0、$P=128$） | ⑥ 与 SimpleVLA-RL 之后，补"world model 内成功率与真实成功率的差距"这个诊断 | 论文用 32×H100；只跑推理加小规模训练的成本未报告 |
+| WMPO（官方 checkpoint，只跑 Coffee_D0、 $P=128$） | ⑥ 与 SimpleVLA-RL 之后，补"world model 内成功率与真实成功率的差距"这个诊断 | 论文用 32×H100；只跑推理加小规模训练的成本未报告 |
 
 ---
 
@@ -548,7 +548,7 @@ graph LR
   - [World-Gymnast](./05_intersections/world-gymnast/notes.md) 的 Table 3 是在训练所用的 world model 里评测的。
 - **可能的工具**：
   - 03 的 $G_{\text{perf}}$ 定义和 SRCC（[Reality Gap 综述](./03_real2sim2real/survey-reality-gap/notes.md)），直接套到"world model 内回报对真实回报"上。
-  - 抑制手段有两个：TD-MPC2 附录 J 的不确定性惩罚（$c=0.01$ 时从 56.54 升到 62.01），以及 RWM-U（2504.16680，未收录）。
+  - 抑制手段有两个：TD-MPC2 附录 J 的不确定性惩罚（ $c=0.01$ 时从 56.54 升到 62.01），以及 RWM-U（2504.16680，未收录）。
   - Murphy §4.3.1 的论点：model 只需要在当前策略诱导的访问分布上准确。
 - **最小切入**：在复现 ④ 上，用同一批初始状态，记录"预测 reward − 真实 reward"和"world model 内回报 − Isaac Lab 回报"随训练步数的曲线；再加 ensemble 不确定性惩罚，看差距是否收敛。
 

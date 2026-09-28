@@ -24,40 +24,40 @@ SimDist 先在仿真里用 privileged expert、中间 checkpoint 和动作扰动
 
 $$
 \begin{aligned}
-&z_t=E_\theta(o_t),\quad h_t=C_\theta(o_{t-H:t-1},a_{t-H:t-1}),\quad \hat z_{t+1:t+T}=f_\theta(z_t,a_{t:t+T-1},h_t)\\
+&z_t=E_\theta(o_t),\quad h_t=C_\theta(o_{t-H:t-1},a_{t-H:t-1}),\quad \hat z_{t+1:t+T}=f_\theta(z_t,a_{t:t+T-1},h_t)\cr
 &\hat r_{t:t+T-1}=R_\theta(\hat z_{t:t+T},a_{t:t+T-1}),\quad \hat v_{t+1:t+T}=V_\theta(\hat z_{t:t+T}),\quad \hat a_{t:t+H}=\pi_\theta(z_t,h_t)
 \end{aligned}
 $$
 
 与 TD-MPC / Dreamer 这类逐步 world model 相比有三处工程差异（`method.tex` §IV-C；论文引用的是 2022 年原版 TD-MPC，没有引用 TD-MPC2，本项目相关笔记见 [TD-MPC2](../../01_world_model/tdmpc2/notes.md)）：
 - **Minimal history**：history encoder 只接收本体感知和动作的历史，外部感知（图像或 height map）只取最新一帧，目的是降低规划延迟。
-- **Chunked prediction**：$f_\theta$ 是一个带 causal mask 的 transformer，候选动作序列与 history token 做 cross-attention，**一次前向就输出全部 $T$ 步**，不做逐步自回归 rollout。这个设计借鉴了 AnyCar。
+- **Chunked prediction**： $f_\theta$ 是一个带 causal mask 的 transformer，候选动作序列与 history token 做 cross-attention，**一次前向就输出全部 $T$ 步**，不做逐步自回归 rollout。这个设计借鉴了 AnyCar。
 - **Seq2seq reward/value**：reward 和 value 头也是 transformer，对整条预测轨迹 $\hat z_{t:t+T}$ 做 attention，不是逐步 MLP。因此 value 实际上以整条轨迹为条件，不是 Markov 的 $V(z)$。
 
 **2. 仿真数据生成**（Alg.2，`appendix.tex` §A–C）
-- 先用 privileged state 训练 expert $\pi^e$ 和它的 critic $V^e$。四足用 IsaacLab 里的 PPO 并加 domain randomization；manipulation 直接沿用 Yin et al. 2026 的训练流程。训练过程中的中间 checkpoint $\{\pi^k\}$ 也保存下来。
-- 每个并行环境有自己的对角动作噪声 $\Sigma_j$，$\sigma_i\sim\mathcal U[\sigma_i^{\min},\sigma_i^{\max}]$。每次 reset 时以 0.5 的概率换成一个次优 checkpoint，并在**连续时间窗口**内加 Gaussian 扰动：$a_t=\pi^k(s_t)+\varepsilon_t$。
-- 每一步记录 $(o_t,a_t,b^e_t,r_t,v_t)$。其中 $r_t$ 由 privileged state 算出，$v_t=V^e(s_t)$。**注意 value 标签始终来自 expert 的 critic，与当时实际执行的是哪个策略无关**。$b^e_t=1$ 当且仅当这一步动作来自 expert 且没有加噪声。
+- 先用 privileged state 训练 expert $\pi^e$ 和它的 critic $V^e$。四足用 IsaacLab 里的 PPO 并加 domain randomization；manipulation 直接沿用 Yin et al. 2026 的训练流程。训练过程中的中间 checkpoint $\lbrace\pi^k\rbrace$ 也保存下来。
+- 每个并行环境有自己的对角动作噪声 $\Sigma_j$， $\sigma_i\sim\mathcal U[\sigma_i^{\min},\sigma_i^{\max}]$。每次 reset 时以 0.5 的概率换成一个次优 checkpoint，并在**连续时间窗口**内加 Gaussian 扰动： $a_t=\pi^k(s_t)+\varepsilon_t$。
+- 每一步记录 $(o_t,a_t,b^e_t,r_t,v_t)$。其中 $r_t$ 由 privileged state 算出， $v_t=V^e(s_t)$。**注意 value 标签始终来自 expert 的 critic，与当时实际执行的是哪个策略无关**。 $b^e_t=1$ 当且仅当这一步动作来自 expert 且没有加噪声。
 - 这样做的目的是覆盖 expert manifold 之外的失误和恢复行为。规划器会在分布外采样，如果模型没在这些区域见过数据，就会被规划器利用。
 
 **3. 预训练损失**（`method.tex` Eq.2）
 
 $$
-\mathcal L_t^{\mathtt{sim}}(\theta)=\sum_{i=0}^{T}\Big(\|\hat z_{t+i+1}-\mathtt{sg}(E_\theta(o_{t+i+1}))\|_2^2+c_1(\hat r_{t+i}-r_{t+i})^2+c_2(\hat v_{t+i+1}-v_{t+i+1})^2+c_3\,\mathbb 1_e(a_{t+i})\|\hat a_{t+i}-a_{t+i}\|_2^2\Big)
+\mathcal L_t^{\mathtt{sim}}(\theta)=\sum_{i=0}^{T}\Big(\Vert\hat z_{t+i+1}-\mathtt{sg}(E_\theta(o_{t+i+1}))\Vert_2^2+c_1(\hat r_{t+i}-r_{t+i})^2+c_2(\hat v_{t+i+1}-v_{t+i+1})^2+c_3\thinspace\mathbb 1_e(a_{t+i})\Vert\hat a_{t+i}-a_{t+i}\Vert_2^2\Big)
 $$
 
-- 第 1 项是 latent consistency，与 TD-MPC 相同，目标加 stop-grad。第 2 项回归 reward。第 3 项把 $V^e$ 蒸馏到 latent 上，是**纯回归，不做 TD bootstrap**。第 4 项只在"干净 expert 动作"上做 BC，得到 policy prior。$c_{1:3}$ 按各自目标的数值范围做归一化。
+- 第 1 项是 latent consistency，与 TD-MPC 相同，目标加 stop-grad。第 2 项回归 reward。第 3 项把 $V^e$ 蒸馏到 latent 上，是**纯回归，不做 TD bootstrap**。第 4 项只在"干净 expert 动作"上做 BC，得到 policy prior。 $c_{1:3}$ 按各自目标的数值范围做归一化。
 - 由于行为已经交给 privileged expert 生成，这个目标是**平稳**的监督学习，不需要 temporal-difference learning。这是它与 Dreamer / TD-MPC 在线 MBRL 的根本区别。
 - **没有像素重建项**（§IV-A）。一是数据多样性已经足以逼出鲁棒表征；二是 sim-to-real 需要大量视觉随机化，重建目标会迫使 latent 去编码被随机化掉的纹理和光照。
 
 **4. 真实世界适应**（`method.tex` Eq.3，Alg.1）
 
 $$
-\mathcal L_t^{\mathtt{real}}(\theta)=\sum_{i=0}^{T}\|\hat z_{t+i+1}-\mathtt{sg}(E_\theta(o_{t+i+1}))\|_2^2,\qquad C_\theta,E_\theta,R_\theta,V_\theta,\pi_\theta\ \text{冻结，只更新}\ f_\theta
+\mathcal L_t^{\mathtt{real}}(\theta)=\sum_{i=0}^{T}\Vert\hat z_{t+i+1}-\mathtt{sg}(E_\theta(o_{t+i+1}))\Vert_2^2,\qquad C_\theta,E_\theta,R_\theta,V_\theta,\pi_\theta\ \text{冻结，只更新}\ f_\theta
 $$
 
 - 核心论点（§IV-B）：任务的全局结构，比如 peg 离孔有多远、是否对齐，基本不受低层动力学 gap 影响。reward 和 value 只需要在真实状态上给出**正确的排序**，不要求数值准确；真正对 sim-to-real gap 敏感的是把动作映射到未来状态的 $f_\theta$。
-- 冻结 $E_\theta$ 有两个作用：它为 Eq.3 提供固定不变的回归目标；它也把新的 dynamics 钉在 $R_\theta$、$V_\theta$ 训练时所用的 latent 空间里，不会漂走。
+- 冻结 $E_\theta$ 有两个作用：它为 Eq.3 提供固定不变的回归目标；它也把新的 dynamics 钉在 $R_\theta$、 $V_\theta$ 训练时所用的 latent 空间里，不会漂走。
 - Eq.3 的监督信号只来自未来 $T$ 步的真实观测（经冻结的 $E_\theta$ 编码成 latent 目标），**不需要真实 reward 标签**，也能用任意来源的轨迹训练（示教、play data、旧策略 rollout），所以作者称它为一种简单的 off-policy RL。
 - 迭代流程：用 MPPI 采集 $M$ 条 rollout，加入 $\mathcal D_{\mathtt{real}}$，finetune $f_\theta$ 直到收敛，再重复。manipulation 每 20 个 episode 更新一次。
 
@@ -93,7 +93,7 @@ Diffusion Policy 和 $\pi_{0.5}$ 各用 100 条真实示教训练，另有加入
 - Fig.9：用一个辅助 probe 从冻结的 $z_t$ 重建真实图像，结果可辨认。这个 probe 是在全部真实数据上单独训练的，只用于分析；world model 本身不用重建损失训练。
 
 **消融**：
-- Fig.10，只在真机 Peg 任务上做。解冻 encoder 后成功率直接跌到 0，因为 $R$/$V$ 收到的是分布外的 latent。解冻 value（按 Feng et al. 2023 的做法）会重新引入长时程 credit assignment，出现 catastrophic forgetting。
+- Fig.10，只在真机 Peg 任务上做。解冻 encoder 后成功率直接跌到 0，因为 $R/V$ 收到的是分布外的 latent。解冻 value（按 Feng et al. 2023 的做法）会重新引入长时程 credit assignment，出现 catastrophic forgetting。
 - Table I，在**仿真**中评估，指标为成功率 / 四足平均 reward：
 
 | 配置 | Peg | Table Leg | Quadruped |
@@ -116,7 +116,7 @@ Diffusion Policy 和 $\pi_{0.5}$ 各用 100 条真实示教训练，另有加入
 
 **我读出来的**：
 1. **"只适应 dynamics"成立有前提**。gap 必须主要体现在动力学上，而任务结构（观测到 latent 的映射、奖励排序）在仿真里是对的。如果视觉 gap 大到 encoder 本身失效，或者真实任务的目标与仿真 reward 不一致，冻结方案就无路可退，而解冻 encoder 已被证明会崩（Fig.10）。
-2. **history encoder $C_\theta$ 也被冻结了**。按 [RMA](../../03_real2sim2real/rma/notes.md) 的思路，$C_\theta$ 恰恰最适合做隐式 system identification。论文没有比较"只调 $C_\theta$"或"调 $f_\theta$ 和 $C_\theta$"，也没有比较 residual、LoRA 这类更轻的 dynamics 适应方式。它 finetune 的是整个 $f_\theta$，那么 $f_\theta$ 在真实数据没覆盖到的状态区域会不会遗忘仿真先验，论文没有分析。
+2. **history encoder $C_\theta$ 也被冻结了**。按 [RMA](../../03_real2sim2real/rma/notes.md) 的思路， $C_\theta$ 恰恰最适合做隐式 system identification。论文没有比较"只调 $C_\theta$"或"调 $f_\theta$ 和 $C_\theta$"，也没有比较 residual、LoRA 这类更轻的 dynamics 适应方式。它 finetune 的是整个 $f_\theta$，那么 $f_\theta$ 在真实数据没覆盖到的状态区域会不会遗忘仿真先验，论文没有分析。
 3. **对比口径不完全对等**。manipulation 里的 RLPD/IQL 用 sparse reward，每个 episode 更新一次，而 SimDist 带着从仿真迁移来的 dense reward/value。SGFT 在一定程度上补上了这一点（同样迁移 sim value）。RL 基线用的是 MLP 单步策略头，不做 chunking，也不做规划，推理算力远小于 MPPI。BC 基线用 100 条示教，SimDist+BC 只用 20 条。
 4. **统计量偏少**。Fig.4 每条真机曲线都没有误差带或置信区间，论文也没说明重复了几次运行。四足每条曲线只有 3–4 个点。Table I 的消融都在仿真中做，衡量的是规划性能，**没有测这些消融对真实世界适应速度的影响**。
 5. **文中有几处数字前后不一致**：
@@ -147,7 +147,7 @@ Diffusion Policy 和 $\pi_{0.5}$ 各用 100 条真实示教训练，另有加入
 1. **TD-MPC 系 latent world model**：latent consistency loss 加 stop-grad、reward/value head、policy prior，以及用 MPPI/CEM 在 latent 空间规划（先读 [TD-MPC2](../../01_world_model/tdmpc2/notes.md)）。
 2. **MPC 与 MPPI**：采样、按回报做指数加权、elites，以及短窗口加 terminal value 的回报估计。
 3. **privileged teacher 的 sim-to-real 流程**：PPO + domain randomization + teacher-student（[legged gym](../../03_real2sim2real/legged-gym/notes.md)、[RMA](../../03_real2sim2real/rma/notes.md)）。
-4. **Value function 的含义**：$V^{\pi^e}$ 与行为策略价值的区别，以及规划时为什么"排序正确"就够用。
+4. **Value function 的含义**： $V^{\pi^e}$ 与行为策略价值的区别，以及规划时为什么"排序正确"就够用。
 5. **Offline-to-online RL 基线**：RLPD、[IQL](../../04_rl/iql/notes.md)，以及它们在 finetune 中出现 collapse 或 forgetting 的原因。
 6. **system identification 与 TTT 的自监督适应**（[TTT](../../02_test_time_training/ttt-self-supervised/notes.md)、[PAD](../pad/notes.md)）。
 7. Transformer 的 cross-attention 和 causal mask（用于理解 chunked dynamics）。
@@ -173,7 +173,7 @@ Diffusion Policy 和 $\pi_{0.5}$ 各用 100 条真实示教训练，另有加入
 ## 自测问题
 
 1. 为什么 reward、value、encoder 可以冻结，而 dynamics 必须 finetune？"value 只需要给出正确排序"这一点，在 MPPI 的回报公式 $\gamma^T\hat v_{t+T}+\sum\gamma^{s-t}\hat r_s$ 里是怎么体现的？
-2. 如果在 Eq.3 里也更新 $E_\theta$，回归目标 $\mathtt{sg}(E_\theta(o_{t+1}))$ 和下游的 $R_\theta$、$V_\theta$ 各会出什么问题？与 Fig.10 的结果对应起来解释。
+2. 如果在 Eq.3 里也更新 $E_\theta$，回归目标 $\mathtt{sg}(E_\theta(o_{t+1}))$ 和下游的 $R_\theta$、 $V_\theta$ 各会出什么问题？与 Fig.10 的结果对应起来解释。
 3. 数据生成为什么要混入中间 checkpoint 和"连续时间窗口"的动作噪声？BC 项为什么要用 $\mathbb 1_e$ 做 mask？value 标签为什么用 $V^e(s_t)$，而不是行为策略自身的 Monte Carlo 回报？
 4. 与 TD-MPC2 相比，SimDist 的预训练去掉了哪一类学习，为什么说它的目标是"平稳"的？它的真实世界适应又在什么意义上算 off-policy RL？
 5. 在 Table I 中，重建损失对 manipulation 伤害很大（0.90→0.32），对四足却略有帮助（22.78→23.34）。用两个平台观测模态和随机化方式的差异来解释这个现象。

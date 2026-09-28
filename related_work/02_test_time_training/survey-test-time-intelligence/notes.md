@@ -12,11 +12,11 @@
 ## 问题设定
 
 - **动机**（Sec.1）：train-then-infer 假设"冻结模型能应付所有测试场景"，面对分布偏移、用户差异、难度差异，这个假设越来越站不住（原文 "less tenable"）。TTA 社区（改参数）和 LLM 的 TTS 社区（加算力）术语各自为政，彼此的联系看不出来。
-- **训练端**（Sec.3.1）：$\theta^*=\arg\min_\theta \mathcal L_{tr}(\theta;\mathcal D_{tr})$，其中 $\mathcal D_{tr}\sim p_{\mathcal S}(x,y)$。
-- **Definition 1（TTL，Eq.1）**：测试输入 $\mathcal D_{te}=\{x_j\}$，外部反馈 $\mathcal F_{te}$ 可以为空。
+- **训练端**（Sec.3.1）： $\theta^{\ast}=\arg\min_\theta \mathcal L_{tr}(\theta;\mathcal D_{tr})$，其中 $\mathcal D_{tr}\sim p_{\mathcal S}(x,y)$。
+- **Definition 1（TTL，Eq.1）**：测试输入 $\mathcal D_{te}=\lbrace x_j\rbrace$，外部反馈 $\mathcal F_{te}$ 可以为空。
   $$\phi^{+}=\operatorname{Update}(\phi;\mathcal D_{te},\mathcal F_{te})$$
   $\phi$ 可以是输入或 latent、参数或统计量、辅助模块、外部 memory；Update 可以是梯度优化、闭式或 running-statistics 更新、memory 写入，也可以是输入精修。场景同时覆盖 $p_{\mathcal S}\neq p_{\mathcal T}$（分布偏移）和 $p_{\mathcal S}=p_{\mathcal T}$（记忆和自我改进）。
-- **TTS（Eq.7–8）**：标准推理是 $\hat y_{std}=\mathcal I_0(f_\theta,x)$，TTS 把它推广成 $\hat y_{tts}=\mathcal F(f_\theta,x;\mathbf c)$。$\mathbf c$ 是预算配置（采样数、推理步数、搜索深度、验证轮数、工具调用次数），取 $\mathbf c=\mathbf c_0$ 时退化为标准推理，$\theta$ 始终不变。
+- **TTS（Eq.7–8）**：标准推理是 $\hat y_{std}=\mathcal I_0(f_\theta,x)$，TTS 把它推广成 $\hat y_{tts}=\mathcal F(f_\theta,x;\mathbf c)$。 $\mathbf c$ 是预算配置（采样数、推理步数、搜索深度、验证轮数、工具调用次数），取 $\mathbf c=\mathbf c_0$ 时退化为标准推理， $\theta$ 始终不变。
 - **两条边界判据**（Sec.2.1，最值得记）：
   1. *TTI vs training-time amortization*：部署时的信号如果只在之后的离线 fine-tune / 蒸馏里才起作用，就不算 TTI。
   2. *TTL vs 普通推理态演化*：KV cache、序列模型的 hidden state、预定 denoising 轨迹上的 diffusion latent 都**不算** TTL。只有被 test-time feedback **显式优化或写入**的 designated writable state 才算。
@@ -54,11 +54,11 @@
 ### 2. 适应分布偏移的机制（Sec.3.5）
 
 - **偏移类型**：covariate shift 指 $p_{\mathcal S}(x)\ne p_{\mathcal T}(x)$ 且 $p(y|x)$ 不变（Def.2）；label shift 指 $p(y)$ 变而 $p(x|y)$ 不变（Def.3）；现实中常是两者复合。对齐目标（Eq.2）：
-  $$\phi^*=\arg\min_\phi \mathcal D\big(q^{(\phi)}_{\mathcal T}(z)\,\|\,q_{\mathcal S}(z)\big)+\lambda\mathcal R(\phi)$$
-- **TTT vs FTTA**（Fig.5，Sec.3.5.2）。TTT 在训练期让共享 encoder $g$ 同时服务两个头：监督头 $\pi_C$ 和自监督头 $\pi_S$。测试时先用 $\mathcal L_{ttl}(\pi_S(g(x)))$ 更新 $g$，再用 $\pi_C$ 预测。下面的式子是笔者根据 Sec.3.5.2 的文字和 Fig.5 写的，不是论文编号公式（原文只说 "updates the shared encoder"，没写成梯度步）：$g^{+}=g-\eta\nabla_g\mathcal L_{ttl}$，$\hat y=\pi_C(g^{+}(x))$。FTTA 不改训练过程，典型是 Tent 的熵最小化（Eq.3）$\mathcal H(\hat y)=-\sum_c\hat y_c\log\hat y_c$，默认假设"置信 ≈ 正确"。取舍：TTT 需要源端准备，proxy 与任务对齐得更好；FTTA 即插即用，但更容易 collapse。
+  $$\phi^{\ast}=\arg\min_\phi \mathcal D\big(q^{(\phi)}_ {\mathcal T}(z)\thinspace\Vert\thinspace q_{\mathcal S}(z)\big)+\lambda\mathcal R(\phi)$$
+- **TTT vs FTTA**（Fig.5，Sec.3.5.2）。TTT 在训练期让共享 encoder $g$ 同时服务两个头：监督头 $\pi_C$ 和自监督头 $\pi_S$。测试时先用 $\mathcal L_{ttl}(\pi_S(g(x)))$ 更新 $g$，再用 $\pi_C$ 预测。下面的式子是笔者根据 Sec.3.5.2 的文字和 Fig.5 写的，不是论文编号公式（原文只说 "updates the shared encoder"，没写成梯度步）： $g^{+}=g-\eta\nabla_g\mathcal L_{ttl}$， $\hat y=\pi_C(g^{+}(x))$。FTTA 不改训练过程，典型是 Tent 的熵最小化（Eq.3） $\mathcal H(\hat y)=-\sum_c\hat y_c\log\hat y_c$，默认假设"置信 ≈ 正确"。取舍：TTT 需要源端准备，proxy 与任务对齐得更好；FTTA 即插即用，但更容易 collapse。
 - **协议三维**（Sec.3.5.3）：source-dependent / source-light / source-free；offline / online；single-domain / continual。continual TTA 的两大难题是 catastrophic forgetting 和 error accumulation，对策分三类：可靠目标（样本筛选、校准）、稳定更新（Fisher 正则、teacher-anchoring restoration 即让预测或参数向稳定的 anchor 模型对齐、梯度过滤）、多模型解耦。
-- **Forward-only**（Sec.3.5.4）。FOA 用 CMA-ES 搜 prompt，把解空间"从百万维降到几千维"：$\mathbf p_k^{(t)}\sim\mathbf m^{(t)}+\tau^{(t)}\mathcal N(0,\Sigma^{(t)})$（Eq.4）。ZOA 用 SPSA，$\hat g(\theta)=\frac{\mathcal L(x;\theta+c\epsilon)-\mathcal L(x;\theta)}{c}\epsilon^{-1}$（Eq.5），每个样本只需两次前向。另一支是 optimization-free：BN 统计量或特征均值校准、FFT 或 diffusion 输入净化、LAME 输出调整。
-- **TTL 作为记忆**（Sec.3.6.1）：TTT-Layer 把 hidden state 当作模型，逐 token 做一步自监督梯度，$W_t=W_{t-1}-\eta\nabla_W\ell_{ssl}(x_t;W_{t-1})$（Eq.6），序列复杂度是 $\mathcal O(n)$。后续工作沿四个方向展开：更新规则（TTT-E2E、In-Place TTT）、容量管理（Titans、ATLAS）、plug-and-play memory、模态扩展（RoboTTT 用于机器人长 history）。
+- **Forward-only**（Sec.3.5.4）。FOA 用 CMA-ES 搜 prompt，把解空间"从百万维降到几千维"： $\mathbf p_k^{(t)}\sim\mathbf m^{(t)}+\tau^{(t)}\mathcal N(0,\Sigma^{(t)})$（Eq.4）。ZOA 用 SPSA， $\hat g(\theta)=\frac{\mathcal L(x;\theta+c\epsilon)-\mathcal L(x;\theta)}{c}\epsilon^{-1}$（Eq.5），每个样本只需两次前向。另一支是 optimization-free：BN 统计量或特征均值校准、FFT 或 diffusion 输入净化、LAME 输出调整。
+- **TTL 作为记忆**（Sec.3.6.1）：TTT-Layer 把 hidden state 当作模型，逐 token 做一步自监督梯度， $W_t=W_{t-1}-\eta\nabla_W\ell_{ssl}(x_t;W_{t-1})$（Eq.6），序列复杂度是 $\mathcal O(n)$。后续工作沿四个方向展开：更新规则（TTT-E2E、In-Place TTT）、容量管理（Titans、ATLAS）、plug-and-play memory、模态扩展（RoboTTT 用于机器人长 history）。
 
 ### 3. TTS 分类（Sec.4，Fig.6，Table 3/4）
 

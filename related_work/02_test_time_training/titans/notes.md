@@ -5,7 +5,7 @@
 
 ## 一句话
 
-把 RNN 的 hidden state 换成一个 MLP 的权重，作为 neural long-term memory（LMM）。测试时，模型对每个 token 用 associative memory loss $\|\mathcal M(\mathbf k_t)-\mathbf v_t\|^2$ 做梯度下降来写入记忆，这个梯度下降带 momentum（past surprise）和 weight decay（forget gate）。LMM 再和充当 short-term memory 的 attention、以及 persistent memory 组合，得到 Titans（MAC / MAG / MAL 三种接法）。
+把 RNN 的 hidden state 换成一个 MLP 的权重，作为 neural long-term memory（LMM）。测试时，模型对每个 token 用 associative memory loss $\Vert\mathcal M(\mathbf k_t)-\mathbf v_t\Vert^2$ 做梯度下降来写入记忆，这个梯度下降带 momentum（past surprise）和 weight decay（forget gate）。LMM 再和充当 short-term memory 的 attention、以及 persistent memory 组合，得到 Titans（MAC / MAG / MAL 三种接法）。
 
 ## 问题设定
 
@@ -22,17 +22,17 @@
 ## 核心方法
 
 **1. Neural long-term memory（§3.1）。** 先做投影 $\mathbf k_t=x_tW_K,\ \mathbf v_t=x_tW_V,\ \mathbf q_t=x_tW_Q$（Eq.11, 15）。memory $\mathcal M$ 是 $L_\mathcal M\ge1$ 层的 MLP，它的参数就是 fast weights。写入目标是 associative memory loss，后续文献称之为 KV binding（`source/MainText/Methods.tex` Eq.12）：
-$$\ell(\mathcal M_{t-1};x_t)=\big\|\mathcal M_{t-1}(\mathbf k_t)-\mathbf v_t\big\|_2^2$$
-最朴素的写法是一步 GD，作者把梯度称为 "surprise"（Eq.8）：$\mathcal M_t=\mathcal M_{t-1}-\theta_t\nabla\ell(\mathcal M_{t-1};x_t)$。它的问题是：一次大 surprise 之后梯度迅速变小，紧随其后的相关 token 就记不住了。于是作者把 surprise 拆成 past surprise 和 momentary surprise 两部分，再加上遗忘，得到最终形式（Eq.13–14）：
-$$\mathcal M_t=(1-\alpha_t)\,\mathcal M_{t-1}+S_t,\qquad S_t=\eta_t\,S_{t-1}-\theta_t\,\nabla\ell(\mathcal M_{t-1};x_t)$$
+$$\ell(\mathcal M_{t-1};x_t)=\big\Vert\mathcal M_{t-1}(\mathbf k_t)-\mathbf v_t\big\Vert_2^2$$
+最朴素的写法是一步 GD，作者把梯度称为 "surprise"（Eq.8）： $\mathcal M_t=\mathcal M_{t-1}-\theta_t\nabla\ell(\mathcal M_{t-1};x_t)$。它的问题是：一次大 surprise 之后梯度迅速变小，紧随其后的相关 token 就记不住了。于是作者把 surprise 拆成 past surprise 和 momentary surprise 两部分，再加上遗忘，得到最终形式（Eq.13–14）：
+$$\mathcal M_t=(1-\alpha_t)\thinspace\mathcal M_{t-1}+S_t,\qquad S_t=\eta_t\thinspace S_{t-1}-\theta_t\thinspace\nabla\ell(\mathcal M_{t-1};x_t)$$
 - $\theta_t$：本步写入多少 momentary surprise，相当于 data-dependent 的学习率。
-- $\eta_t$：momentum 的衰减系数。$\eta_t\to0$ 时丢掉上一步的 surprise，对应上下文切换；$\eta_t\to1$ 时完全沿用。
-- $\alpha_t\in[0,1]$：即 weight decay，起 forget gate 的作用；论文称它与 modern RNN 中的 gating 机制密切相关。$\alpha_t\to0$ 时不影响已有记忆，$\alpha_t\to1$ 时清空整个 memory。
+- $\eta_t$：momentum 的衰减系数。 $\eta_t\to0$ 时丢掉上一步的 surprise，对应上下文切换； $\eta_t\to1$ 时完全沿用。
+- $\alpha_t\in[0,1]$：即 weight decay，起 forget gate 的作用；论文称它与 modern RNN 中的 gating 机制密切相关。 $\alpha_t\to0$ 时不影响已有记忆， $\alpha_t\to1$ 时清空整个 memory。
 
-三个系数都是 $x_t$ 的函数，实验里按 token 取值，但具体的参数化方式论文没有给出。整体上，这就是"带 momentum 和 weight decay 的 SGD"沿序列维度展开。读取时只做前向、不更新权重：$y_t=\mathcal M^*(\mathbf q_t)$（Eq.15）。另外要注意，正文说 surprise 是 "gradient with respect to the input"，但公式里求的是对 memory 参数的梯度，这里以公式为准。
+三个系数都是 $x_t$ 的函数，实验里按 token 取值，但具体的参数化方式论文没有给出。整体上，这就是"带 momentum 和 weight decay 的 SGD"沿序列维度展开。读取时只做前向、不更新权重： $y_t=\mathcal M^{\ast}(\mathbf q_t)$（Eq.15）。另外要注意，正文说 surprise 是 "gradient with respect to the input"，但公式里求的是对 memory 参数的梯度，这里以公式为准。
 
-**白板推导：线性 memory 会退化成什么。** 取 $\mathcal M=W$、loss 为 $\tfrac12\|W\mathbf k_t-\mathbf v_t\|^2$，则 $\nabla_W\ell=(W\mathbf k_t-\mathbf v_t)\mathbf k_t^\top$。
-- 当 $\eta_t=\alpha_t=0$ 时，$W_t=W_{t-1}(I-\theta_t\mathbf k_t\mathbf k_t^\top)+\theta_t\mathbf v_t\mathbf k_t^\top$，正好是 delta rule，即 DeltaNet（`Appendix/MAL.tex` Eq.34）。
+**白板推导：线性 memory 会退化成什么。** 取 $\mathcal M=W$、loss 为 $\tfrac12\Vert W\mathbf k_t-\mathbf v_t\Vert^2$，则 $\nabla_W\ell=(W\mathbf k_t-\mathbf v_t)\mathbf k_t^\top$。
+- 当 $\eta_t=\alpha_t=0$ 时， $W_t=W_{t-1}(I-\theta_t\mathbf k_t\mathbf k_t^\top)+\theta_t\mathbf v_t\mathbf k_t^\top$，正好是 delta rule，即 DeltaNet（`Appendix/MAL.tex` Eq.34）。
 - 再加上 $\alpha_t$，就对应 Gated DeltaNet（论文原话是 $\eta_t=0$ 时两者等价）。作者据此说 LMM 推广了 Gated DeltaNet、Longhorn 和 TTT layer：
   - 相对 Gated DeltaNet 多出三样：momentum、deep memory，以及 chunk 之间的非线性递推（chunk 内仍是线性递推）；
   - 相对 Longhorn，除上面三样外还多一个 forget gate；
@@ -47,7 +47,7 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
 - momentum 项 $S_t=\eta_tS_{t-1}-\theta_tu_t$（Eq.18）里的 $u_t$ 可以一次性全部算出，所以它是一个输入依赖的线性递推，可以用 parallel associative scan 求解。
 - 结果就是 Figure 1 所说的"chunk 内线性（cumsum），chunk 间非线性（经过梯度）"。
 
-所以实际执行的是 **chunk 级 mini-batch 更新**，不是 Eq.13–14 那样的逐 token 更新；$b$ 越大越快，但离真正的 online 更新越远。论文没有报告 $b$ 的取值。作者还提出可以把 $\alpha,\theta,\eta$ 设成 chunk 级常数，这时 Eq.18 变成 LTI 系统，可以用 global convolution 计算；不过实验中用的仍是 token 级系数。
+所以实际执行的是 **chunk 级 mini-batch 更新**，不是 Eq.13–14 那样的逐 token 更新； $b$ 越大越快，但离真正的 online 更新越远。论文没有报告 $b$ 的取值。作者还提出可以把 $\alpha,\theta,\eta$ 设成 chunk 级常数，这时 Eq.18 变成 LTI 系统，可以用 global convolution 计算；不过实验中用的仍是 token 级系数。
 
 **3. Persistent memory（§3.3）。** 在序列最前面拼上 $N_p$ 个可学习、与输入无关的 token（Eq.19）。作者给了三个动机：
 - 存储任务知识，测试时冻结；
@@ -56,13 +56,13 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
 
 **4. 三种接法（§4）。**
 - **MAC（Memory as a Context，Figure 2、3a，Eq.21–25）**：先把序列切成 segment $\mathsf S^{(t)}$，每个 segment 依次做下面几步。
-  1. 用当前 segment 去查历史：$h_t=\mathcal M^*_{t-1}(\mathbf q_t)$。
-  2. 拼接并在 segment 内做 full causal attention：$\tilde{\mathsf S}^{(t)}=[p_1..p_{N_p}]\,\|\,h_t\,\|\,\mathsf S^{(t)}$，$y_t=\mathrm{Attn}(\tilde{\mathsf S}^{(t)})$。
-  3. 用 attention 的输出而不是原始输入写入 memory：$\mathcal M_t=\mathcal M_{t-1}(y_t)$；输出 $o_t=y_t\otimes\mathcal M^*_t(y_t)$。
+  1. 用当前 segment 去查历史： $h_t=\mathcal M^{\ast}_ {t-1}(\mathbf q_t)$。
+  2. 拼接并在 segment 内做 full causal attention： $\tilde{\mathsf S}^{(t)}=[p_1..p_{N_p}]\thinspace\Vert\thinspace h_t\thinspace\Vert\thinspace\mathsf S^{(t)}$， $y_t=\mathrm{Attn}(\tilde{\mathsf S}^{(t)})$。
+  3. 用 attention 的输出而不是原始输入写入 memory： $\mathcal M_t=\mathcal M_{t-1}(y_t)$；输出 $o_t=y_t\otimes\mathcal M^{\ast}_ t(y_t)$。
 
   这样 attention 既决定要不要用长时记忆，也筛选哪些信息值得写入。测试时 persistent memory 冻结，attention 负责 in-context learning，memory 继续学习。
-- **MAG（Memory as a Gate，Figure 4、3b，Eq.26–28）**：不切 segment。一支是带 persistent prefix 的 SWA，另一支是直接用输入更新的 LMM，两支经 gating 组合：$o=y\otimes\mathcal M(\tilde x)$，论文说 $\otimes$ 可以是任意非线性 gating。实验中两支输出各自用可学习向量归一化，再过非线性 $\sigma$。作者把 SWA 看作精确的短时记忆，把 LMM 看作 fading memory。
-- **MAL（Memory as a Layer，Figure 5，Eq.29–31）**：$y=\mathcal M(\tilde x)$，$o=\mathrm{SW\text{-}Attn}(y)$。骨架采用 H3 式结构，也就是常见的逐层 hybrid。
+- **MAG（Memory as a Gate，Figure 4、3b，Eq.26–28）**：不切 segment。一支是带 persistent prefix 的 SWA，另一支是直接用输入更新的 LMM，两支经 gating 组合： $o=y\otimes\mathcal M(\tilde x)$，论文说 $\otimes$ 可以是任意非线性 gating。实验中两支输出各自用可学习向量归一化，再过非线性 $\sigma$。作者把 SWA 看作精确的短时记忆，把 LMM 看作 fading memory。
+- **MAL（Memory as a Layer，Figure 5，Eq.29–31）**： $y=\mathcal M(\tilde x)$， $o=\mathrm{SW\text{-}Attn}(y)$。骨架采用 H3 式结构，也就是常见的逐层 hybrid。
 - **LMM**：只保留 neural memory，不用 attention。
 
 **实现细节（§4.4）**：
@@ -71,7 +71,7 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
 - q/k/v 投影之后各接一个 1D depthwise-separable conv；
 - 输出投影之前做 normalization 和线性门控。
 
-§4.4 还给了一个定理：Titans 能解 TC$^0$ 以外的问题，而 Transformer、对角线性递推和 DeltaNet 都局限在 TC$^0$。v1 没有给出证明。
+§4.4 还给了一个定理：Titans 能解 $\text{TC}^0$ 以外的问题，而 Transformer、对角线性递推和 DeltaNet 都局限在 $\text{TC}^0$。v1 没有给出证明。
 
 **训练与推理流程。**
 - **Outer loop**（`MainText/Experiments.tex` "Training"）：AdamW，lr 4e-4，cosine schedule，batch 0.5M tokens，weight decay 0.1，LLaMA 2 tokenizer（32K 词表），训练长度 4K。170M/340M/400M 模型各训 15B FineWeb-Edu token，760M 训 30B。梯度穿过 inner loop 反传到 $W_K,W_V,W_Q$ 和门控参数，论文称 $W_K,W_V$ 是 inner loss 的 "hyperparameters"。
@@ -82,7 +82,7 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
 
 **语言建模与常识推理**（Table 1）。每格为 Wiki ppl ↓ / 平均 acc ↑：
 
-| 规模 / tokens | Transformer++ | TTT | Gated DeltaNet | GDN-H2$^*$ | LMM | MAC | MAG | MAL |
+| 规模 / tokens | Transformer++ | TTT | Gated DeltaNet | $\text{GDN-H2}^{\ast}$ | LMM | MAC | MAG | MAL |
 |---|---|---|---|---|---|---|---|---|
 | 340M / 15B | 31.52 / 42.92 | 27.44 / 44.51 | 27.01 / 45.42 | — | 26.18 / 46.17 | 25.43 / 47.36 | 25.07 / 47.54 | 24.69 / 46.55 |
 | 400M / 15B | 30.63 / 45.64 | 26.11 / 46.86 | 25.47 / 47.26 | 24.19 / 47.69 | 25.03 / 47.83 | 25.61 / 48.65 | 23.59 / 48.60 | 23.93 / 47.87 |
@@ -109,7 +109,7 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
 
 **Deep memory**（Figure 7、8，在 Pile 子集上训练，只测 LMM）：
 - 170M、360M、760M 三个规模。作者称 $L_\mathcal M$ 越大，所有长度上的 ppl 都更低；参数量较小时，更深的 memory 对序列长度也更稳健。读图看这一说法并不严格成立：360M 在 2K 长度处 $L_\mathcal M=4$ 的 ppl 反而最高（约 13.26，高于 $L_\mathcal M=1$ 的约 13.19）；170M 上 $L_\mathcal M=3$ 与 $L_\mathcal M=4$ 交错，4K–16K 处 $L_\mathcal M=3$ 略低。
-- 代价是吞吐：读图约为 $L_\mathcal M=1$ 时 44K tokens/s，$L_\mathcal M=4$ 时约 23–24K tokens/s，硬件未说明。吞吐不随序列长度变化。
+- 代价是吞吐：读图约为 $L_\mathcal M=1$ 时 44K tokens/s， $L_\mathcal M=4$ 时约 23–24K tokens/s，硬件未说明。吞吐不随序列长度变化。
 
 **消融**（Table 5，以 LMM 为基座；三列依次为 LM ppl / Reasoning acc / Long Context acc）：
 
@@ -146,10 +146,10 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
   - 最大只到 760M 参数、30B token，训练长度 4K。
   - 400M 的 baseline 数字直接取自 Gated DeltaNet 论文（`Appendix/Exp-details.tex`）；BABILong 和 DNA 的 baseline 也都引用他人结果，训练流程并不同源。
   - 没有多 seed，也没有方差。
-- **超参数与算力缺失**：chunk 大小 $b$、segment 长度、$N_p$、$N_l$、SWA 窗口、主实验用的 $L_\mathcal M$、$\alpha/\theta/\eta$ 的参数化、NIAH 和 BABILong few-shot 用的模型规模都没有给。**完全没有报告算力**，吞吐测试的硬件也没有说明。
+- **超参数与算力缺失**：chunk 大小 $b$、segment 长度、 $N_p$、 $N_l$、SWA 窗口、主实验用的 $L_\mathcal M$、 $\alpha/\theta/\eta$ 的参数化、NIAH 和 BABILong few-shot 用的模型规模都没有给。**完全没有报告算力**，吞吐测试的硬件也没有说明。
 - **文本与表格不一致**：
-  - Intro 说评测了 "recall-intensive" 任务，v1 里找不到这组实验；TC$^0$ 定理没有证明。
-  - Table 1 中 760M 的 Titans 行缺少 hybrid 标记 $^*$，760M MAL 的 SIQA 为 30.98，明显异常。
+  - Intro 说评测了 "recall-intensive" 任务，v1 里找不到这组实验； $\text{TC}^0$ 定理没有证明。
+  - Table 1 中 760M 的 Titans 行缺少 hybrid 标记 $^{\ast}$，760M MAL 的 SIQA 为 30.98，明显异常。
   - Figure 7 标注 360M，与其他地方的 340M 不一致。
   - §5.6 说 "outperforming all baselines"，但 Traffic 的 MAE 不是最优。
   - §5.8 说 MAL "faster than baselines"，但 Figure 9 中 Mamba2 在所有长度上都比 MAL 快。
@@ -186,7 +186,7 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
   - 综述：[survey-test-time-intelligence](../survey-test-time-intelligence/notes.md)。
 - **与本项目其他主题的联系**：
   - **World model**：[Dreamer](../../01_world_model/dreamer/notes.md) 和 [DreamerV3](../../01_world_model/dreamerv3/notes.md) 中 RSSM 的确定性状态 $h_t$，正是 Titans 所说的 vector-valued memory。[Genie](../../01_world_model/genie/notes.md)、[DIAMOND](../../01_world_model/diamond/notes.md)、[Dreamer 4](../../01_world_model/dreamer4/notes.md) 这类依赖 attention 或有限帧历史的 world model，长 rollout 时的一致性受上下文长度限制。MAC 式的"SWA 短时记忆 + 测试时可写入的长时记忆"是给 world model 补长程记忆的一个候选结构。论文完全没测这个方向，它是本项目可以探索的交叉点。
-  - **Real2sim2real / 部署期适配**：[RMA](../../03_real2sim2real/rma/notes.md) 用 adaptation module，从近期的 state-action 历史估计环境 extrinsics，相当于隐式的 system identification。[PAD](../../05_intersections/pad/notes.md) 在部署期用自监督 loss 对策略编码器做梯度更新。Titans 介于两者之间：它像 PAD 一样在测试时用梯度写入 fast weights，但写入规则本身是 outer loop 端到端学出来的。$\alpha_t$ 和 $\eta_t$ 恰好对应动力学发生突变时"何时丢掉旧的估计"。
+  - **Real2sim2real / 部署期适配**：[RMA](../../03_real2sim2real/rma/notes.md) 用 adaptation module，从近期的 state-action 历史估计环境 extrinsics，相当于隐式的 system identification。[PAD](../../05_intersections/pad/notes.md) 在部署期用自监督 loss 对策略编码器做梯度更新。Titans 介于两者之间：它像 PAD 一样在测试时用梯度写入 fast weights，但写入规则本身是 outer loop 端到端学出来的。 $\alpha_t$ 和 $\eta_t$ 恰好对应动力学发生突变时"何时丢掉旧的估计"。
   - **RL**：部分可观测环境里，policy 和 value 需要长程记忆，LMM 可以代替 LSTM 作为 recurrent policy 的记忆模块。但这没有经过验证，而且 inner loop 的梯度叠加上 [PPO](../../04_rl/ppo/notes.md) 这类方法高方差的 outer 梯度，稳定性未知。
 
 ## 前置知识
@@ -197,7 +197,7 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
 4. 带 momentum 和 weight decay 的 SGD，并学会把它看成沿序列维度的递推。
 5. parallel associative scan、sliding window attention、FlashAttention。
 6. 评测：perplexity、RULER S-NIAH、BABILong。
-7. （可选）TC$^0$ 与 state tracking。
+7. （可选） $\text{TC}^0$ 与 state tracking。
 
 ## 复现可行性
 
@@ -209,13 +209,13 @@ $$\mathcal M_t=\beta_t\mathcal M_0-\sum_{i=1}^{t}\theta_i\frac{\beta_t}{\beta_i}
   2. deep memory 要做 chunk 并行，还要对 inner loop 反向传播，写出高效 kernel 不容易；
   3. 没有官方实现可以用来核对正确性。
 - **最小可复现实验**：
-  1. 在合成的 S-NIAH 或 associative recall 任务上，用 2–4 层、d≈256 的小模型，训练长度 2K、测试 2K–16K，依次对比四个变体：线性 memory、+ $\alpha_t$、+ $\eta_t$、$L_\mathcal M=2$。目标是复现 Table 2 的定性趋势：没有 forget 的模型随长度增加而崩溃，LMM 基本保持。
+  1. 在合成的 S-NIAH 或 associative recall 任务上，用 2–4 层、d≈256 的小模型，训练长度 2K、测试 2K–16K，依次对比四个变体：线性 memory、+ $\alpha_t$、+ $\eta_t$、 $L_\mathcal M=2$。目标是复现 Table 2 的定性趋势：没有 forget 的模型随长度增加而崩溃，LMM 基本保持。
   2. 用 titans-pytorch 在 FineWeb-Edu 的小子集上，比较 170M 以下的 LMM、Gated DeltaNet 和 Transformer++，只看 Wiki ppl 的相对排序，对照 Table 1 的 340M 那一行。
 
 ## 自测问题
 
-1. 从 $\tfrac12\|W\mathbf k_t-\mathbf v_t\|^2$ 出发，推出线性 memory 的更新式。为什么 $\eta_t=\alpha_t=0$ 时它就是 delta rule？为什么把 loss 换成 $-\langle W\mathbf k_t,\mathbf v_t\rangle$ 就得到 linear attention？
-2. 只用 momentary surprise（Eq.8）时，一次大 surprise 之后会出什么问题，$S_t$ 怎么缓解它？$\eta_t\to0$ 和 $\alpha_t\to1$ 在行为上有什么区别？
+1. 从 $\tfrac12\Vert W\mathbf k_t-\mathbf v_t\Vert^2$ 出发，推出线性 memory 的更新式。为什么 $\eta_t=\alpha_t=0$ 时它就是 delta rule？为什么把 loss 换成 $-\langle W\mathbf k_t,\mathbf v_t\rangle$ 就得到 linear attention？
+2. 只用 momentary surprise（Eq.8）时，一次大 surprise 之后会出什么问题， $S_t$ 怎么缓解它？ $\eta_t\to0$ 和 $\alpha_t\to1$ 在行为上有什么区别？
 3. chunk 并行时，chunk 内的梯度在哪个权重处求值？为什么这会得到"chunk 内线性、chunk 间非线性"？chunk 大小 $b$ 变大有什么代价？
 4. MAC 为什么用 attention 输出 $y_t$ 写入 memory，而不用原始输入？测试时 persistent memory、attention、LMM 三类参数分别处于什么状态？
 5. Table 5 中，对长上下文影响最大和几乎没有影响的组件分别是哪个？结合 ttt-kv-linear-attention 的论点，你会怎样设计实验来检验 deep memory 是否必要？

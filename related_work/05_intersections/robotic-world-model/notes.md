@@ -12,9 +12,9 @@ RWM 用一个 GRU 做 world model，输入是低维本体观测，训练时不�
 - **环境**：POMDP $(\mathcal S,\mathcal A,\mathcal O,T,R,O,\gamma)$，policy $\pi_\theta:\mathcal O\to\mathcal A$，目标是最大化 $\mathbb E_{\pi_\theta}[\sum_t\gamma^t r_t]$（`source/sections/approach.tex` §3.1）。
 - **World model 的输入/输出**（Table S2–S4）：
   - 观测 $o$：base 线速度 $v$、角速度 $\omega$、projected gravity $g$、关节位置 $q$、关节速度 $\dot q$、关节力矩 $\tau$。ANYmal D 共 45 维，G1 共 96 维。
-  - 动作 $a$：关节位置目标 $q^*$，ANYmal 12 维，G1 29 维。
+  - 动作 $a$：关节位置目标 $q^{\ast}$，ANYmal 12 维，G1 29 维。
   - privileged information $c$ 是额外的预测目标。ANYmal 为膝/足接触，共 8 维；G1 为 body contact、足高、足速，共 30 维（Table S3）。此外还预测 termination，即 base 触地（§A.4.3）。
-  - 控制频率 50 Hz（$\Delta t=0.02$）。
+  - 控制频率 50 Hz（ $\Delta t=0.02$）。
 - **Reward**：不学 reward model。用手写的速度跟踪 reward（§A.1.2 给出 12 项公式，权重见 Table S6；是否直接沿用 Isaac Lab 默认任务配置，原文未说明），直接在**预测出的** $o'$ 和 $c'$ 上计算（"Rewards are computed from imagined observations and privileged information"）。
 - **之前的方法卡在哪**（Intro / Related work；第 4 条来自 §4.4）：
   1. 带 domain-specific inductive bias 的模型（足端落点、刚体、Lagrangian 等）难以推广到新任务。
@@ -26,18 +26,18 @@ RWM 用一个 GRU 做 world model，输入是低维本体观测，训练时不�
 
 **1. 自回归训练目标**（`source/sections/approach.tex` Eq. 1）。每条训练样本是轨迹上一个长度为 $M+N$ 的滑窗。前 $M$ 步用真实 $(o,a)$ 做上下文，之后第 $k$ 步的预测为
 
-$$o'_{t+k}\sim p_\phi\!\left(\cdot\mid o_{t-M+k:t},\;o'_{t+1:t+k-1},\;a_{t-M+k:t+k-1}\right)$$
+$$o'_ {t+k}\sim p_\phi\negthinspace\left(\cdot\mid o_{t-M+k:t},\thickspace o'_ {t+1:t+k-1},\thickspace a_{t-M+k:t+k-1}\right)$$
 
-也就是说，第 $k$ 步看到的"历史"里已经混进了前 $k-1$ 步的**自己的预测**。privileged information $c'_{t+k}$ 也按同样方式预测。损失函数（Eq. 2）：
+也就是说，第 $k$ 步看到的"历史"里已经混进了前 $k-1$ 步的**自己的预测**。privileged information $c'_ {t+k}$ 也按同样方式预测。损失函数（Eq. 2）：
 
-$$\mathcal L=\frac1N\sum_{k=1}^{N}\alpha^k\Big[L_o(o'_{t+k},o_{t+k})+L_c(c'_{t+k},c_{t+k})\Big]$$
+$$\mathcal L=\frac1N\sum_{k=1}^{N}\alpha^k\Big[L_o(o'_ {t+k},o_{t+k})+L_c(c'_ {t+k},c_{t+k})\Big]$$
 
-其中 $\alpha$ 是 forecast decay，实际取 $\alpha=1.0$（Table S10），所以各步等权。$L_o$、$L_c$ 的具体形式论文没写。网络输出 Gaussian 的均值和标准差，采样时用 reparameterization trick，让梯度能穿过整条自回归链。teacher forcing 就是 $N=1$ 的特例（Fig. 2b）：它可以高度并行（原文 "highly parallelized"），但训练时从没见过自己的误差，也就是训练分布与推理分布之间存在 mismatch。
+其中 $\alpha$ 是 forecast decay，实际取 $\alpha=1.0$（Table S10），所以各步等权。 $L_o$、 $L_c$ 的具体形式论文没写。网络输出 Gaussian 的均值和标准差，采样时用 reparameterization trick，让梯度能穿过整条自回归链。teacher forcing 就是 $N=1$ 的特例（Fig. 2b）：它可以高度并行（原文 "highly parallelized"），但训练时从没见过自己的误差，也就是训练分布与推理分布之间存在 mismatch。
 
 **2. "dual-autoregressive" 结构**（§3.2 末段，Fig. S6）。下面是笔记按 Fig. S6 整理的写法，不是论文公式：
 
-- **inner autoregression**：在 $M$ 步历史上逐步更新 GRU 隐状态，$h_\tau=\mathrm{GRU}(h_{\tau-1},[o_\tau,a_\tau])$。这就是普通 RNN 的 recurrence，作用是从历史里隐式捕捉不可观测的动力学（原文 "captures unobservable dynamics"）。
-- **outer autoregression**：由 $(\mu,\sigma)=\mathrm{MLP}(h_\tau)$ 得到 $o'_{\tau+1}=\mu+\sigma\odot\epsilon$，再把 $[o'_{\tau+1},a_{\tau+1}]$ 喂回 GRU，重复 $N$ 步。
+- **inner autoregression**：在 $M$ 步历史上逐步更新 GRU 隐状态， $h_\tau=\mathrm{GRU}(h_{\tau-1},[o_\tau,a_\tau])$。这就是普通 RNN 的 recurrence，作用是从历史里隐式捕捉不可观测的动力学（原文 "captures unobservable dynamics"）。
+- **outer autoregression**：由 $(\mu,\sigma)=\mathrm{MLP}(h_\tau)$ 得到 $o'_ {\tau+1}=\mu+\sigma\odot\epsilon$，再把 $[o'_ {\tau+1},a_{\tau+1}]$ 喂回 GRU，重复 $N$ 步。
 
 网络结构（Table S7）是 GRU 256-256，外加 MLP 128 的输出 heads。注意：这里的 inner/outer 与 TTT 里的 inner loop/outer loop 是两回事，不涉及测试时的梯度更新。
 
@@ -46,19 +46,19 @@ $$\mathcal L=\frac1N\sum_{k=1}^{N}\alpha^k\Big[L_o(o'_{t+k},o_{t+k})+L_c(c'_{t+k
 1. 用 $\pi_\theta$ 在环境中收集数据，存入 $\mathcal D$（单个 agent）。
 2. 用 Eq. 2 更新 $p_\phi$。
 3. 从 $\mathcal D$ 采样观测，初始化 4096 个 imagination 环境。
-4. 按 $a'_{t+k}\sim\pi_\theta(\cdot\mid o'_{t+k})$ 与 $p_\phi$ 交替 rollout $T$ 步，每次迭代 100 步（Table S11）。
+4. 按 $a'_ {t+k}\sim\pi_\theta(\cdot\mid o'_ {t+k})$ 与 $p_\phi$ 交替 rollout $T$ 步，每次迭代 100 步（Table S11）。
 5. 在预测观测上算 reward，把预测出的 termination 当作 episode 结束（影响 return 和 value），然后做 PPO 更新。
 
-policy 和 value 都是 MLP 128×3 + ELU（Table S9），policy 无记忆。PPO 超参见 Table S11：lr 1e-3、5 epochs、4 mini-batches、KL target 0.01、$\gamma=0.99$、clip 0.2、entropy 0.005。
+policy 和 value 都是 MLP 128×3 + ELU（Table S9），policy 无记忆。PPO 超参见 Table S11：lr 1e-3、5 epochs、4 mini-batches、KL target 0.01、 $\gamma=0.99$、clip 0.2、entropy 0.005。
 
 **4. 预训练 + 在线微调**（§A.4.3–A.4.4）。locomotion 任务中，RWM 先用"为相似任务训练、在不同动力学下运行的策略"产生的**仿真数据**预训练。之后 policy 完全在 imagination 里从零学起，RWM 只用**单个**仿真环境的在线数据微调（这个环境相对预训练环境有 domain shift，用来近似真实世界的数据约束）。manipulation 任务不需要预训练。
 
 ## 关键实验与证据
 
-- **长程预测**：用 ANYmal D 硬件轨迹评估（§4.1，Fig. 3a）。$M=32$、$N=8$，从 $t=32$ 开始自回归到 $t=200$，远超训练时的 $N$，预测曲线仍贴合真值。
+- **长程预测**：用 ANYmal D 硬件轨迹评估（§4.1，Fig. 3a）。 $M=32$、 $N=8$，从 $t=32$ 开始自回归到 $t=200$，远超训练时的 $N$，预测曲线仍贴合真值。
 - **噪声鲁棒性**（Fig. 3b）：在观测和动作上加 Gaussian 噪声，噪声尺度 0–0.8。同样用 AR 训练、同样 $M,N$ 的 MLP 误差随步数发散得明显更快。
 - **跨环境泛化**（Fig. 4）：共 15 个 Isaac Lab 任务，包括 Reach-UR10/Franka、Lift/Open-Drawer-Franka、Repose-Cube-Allegro，以及 A1、Go1、Go2、ANYmal B/C/D、Spot、Cassie、H1、G1 的速度跟踪。RWM-AR 在所有环境上误差 $e$ 都最低（目测均 <1），MLP 在 Velocity-G1 上接近 10。**关键对照**：RWM-TF 与 RSSM、Transformer 同量级，说明大头来自 AR 训练而不是 GRU 结构。作者自己也写到，RSSM 换成 AR 训练后与 RWM 相当；Transformer 做 AR 训练时，多步反传的显存开销太大（§4.3 末段）。注意这里的 baseline 都按惯例用 teacher forcing 训练。
-- **$M/N$ 消融**（Fig. S8 热图，数值从 PDF 读出；完整网格是 $M,N\in\{1,2,8,16,32\}$，下表只节选其中 12 格）：
+- **$M/N$ 消融**（Fig. S8 热图，数值从 PDF 读出；完整网格是 $M,N\in\lbrace1,2,8,16,32\rbrace$，下表只节选其中 12 格）：
 
 | $e$ / 训练小时 | $M=1$ | $M=8$ | $M=32$ |
 |---|---|---|---|
@@ -67,7 +67,7 @@ policy 和 value 都是 MLP 128×3 + ELU（Table S9），policy 无记忆。PPO 
 | $N=8$ | 10.58 / 1.00 | 0.54 / 1.06 | **0.47 / 1.07** |
 | $N=32$ | 1.50 / 1.97 | 0.49 / 2.04 | 0.47 / 2.27 |
 
-  可以读出两点。第一，$N$ 的作用最大：$M=1$ 时只要把 $N$ 提到 32，$e$ 就从 79 降到 1.5。第二，$M=32$ 时 $N=8$ 与 $N=32$ 误差一样，训练时间却只有约一半，这就是默认设置的来源。
+  可以读出两点。第一， $N$ 的作用最大： $M=1$ 时只要把 $N$ 提到 32， $e$ 就从 79 降到 1.5。第二， $M=32$ 时 $N=8$ 与 $N=32$ 误差一样，训练时间却只有约一半，这就是默认设置的来源。
 - **策略学习**（Fig. 5）：ANYmal D 和 G1 速度跟踪，对比 SHAC 与 DreamerV3。
   - MBPO-PPO 的 model error 很快下降。预测 reward 早期高于 ground-truth reward（policy 在利用模型的乐观误差），随训练逐渐对齐（按正文描述；目测 G1 右图到 10000 次迭代时预测 reward 仍比 GT 高几分）。
   - SHAC 的 model error 高且震荡，训练不收敛。作者的解释：一阶梯度在接触不连续处不可靠，训出的混乱行为又污染了数据。
@@ -132,7 +132,7 @@ policy 和 value 都是 MLP 128×3 + ELU（Table S9），policy 无记忆。PPO 
 
 - **代码**：官方仓库 `leggedrobotics/robotic_world_model` 已开源。据仓库 README 徽章，它基于 Isaac Lab 2.1.0、Isaac Sim 4.5.0、Python 3.10，并需要用 model-based RSL-RL fork（`rsl_rl_rwm`）替换 Isaac Lab 自带的 `rsl_rl_lib`；平台徽章只有 linux-64 和 windows-64（README 没写 GPU 要求，但 Isaac Sim 本身需要 NVIDIA RTX GPU），**macOS 跑不了**。提供 init、pretrain、finetune、visualize、play 等任务变体，参考 pipeline 只针对 ANYmal D（flat）。
 - **算力**（论文）：单张 RTX 4090。RWM 约 1 h（Table S10），或者按 Table 1 的 50 min；MBPO-PPO 5 min；在 5 个 seed 上汇报。
-- **最小复现实验**：在 Isaac Lab 里用现成的 ANYmal-D flat 速度策略采集轨迹，只训练 world model，比较 $M=32$ 下 $N\in\{1,2,8\}$ 三个设置。评估从第 32 步起自回归约 170 步的误差，看是否复现 Fig. S8 这一列的趋势（3.99 → 1.91 → 0.47），以及 N=8 约 1 h 的训练时间。三个模型在一张 4090 上大约 3 小时。第二步再跑官方 pretrain → MBPO-PPO，把 ground-truth reward 曲线和 Fig. 5 左图对照。
+- **最小复现实验**：在 Isaac Lab 里用现成的 ANYmal-D flat 速度策略采集轨迹，只训练 world model，比较 $M=32$ 下 $N\in\lbrace1,2,8\rbrace$ 三个设置。评估从第 32 步起自回归约 170 步的误差，看是否复现 Fig. S8 这一列的趋势（3.99 → 1.91 → 0.47），以及 N=8 约 1 h 的训练时间。三个模型在一张 4090 上大约 3 小时。第二步再跑官方 pretrain → MBPO-PPO，把 ground-truth reward 曲线和 Fig. 5 左图对照。
 - **无 GPU 的退路**：在 MuJoCo 的低维 locomotion 环境上自己写 GRU + AR 损失，只验证"TF 对 AR 的误差曲线"这个定性结论。这样复现不了论文里的数字。
 - **难点**：
   - $e$ 的定义不明，数值不一定能直接对上。
@@ -141,7 +141,7 @@ policy 和 value 都是 MLP 128×3 + ELU（Table S9），policy 无记忆。PPO 
 
 ## 自测问题
 
-1. 为什么 teacher forcing 是 $N=1$ 的特例？它在 imagination 里具体怎样导致 compounding error？Fig. S8 里 "$M=1,N=32$ 的 $e=1.50$" 与 "$M=32,N=1$ 的 $e=3.99$" 分别说明了 history 和 forecast 各自的作用是什么？
+1. 为什么 teacher forcing 是 $N=1$ 的特例？它在 imagination 里具体怎样导致 compounding error？Fig. S8 里 " $M=1,N=32$ 的 $e=1.50$" 与 " $M=32,N=1$ 的 $e=3.99$" 分别说明了 history 和 forecast 各自的作用是什么？
 2. privileged information head（接触、termination）在 MBPO-PPO 里起哪两个作用？为什么它能在不做 reward model 的情况下让 reward 可算？
 3. 作者为什么认为 SHAC 在腿足任务上会失败，而零阶的 PPO 在同一个 learned model 上能成功？数据质量又怎样反过来影响了 model error？
 4. 为什么 locomotion 需要仿真数据预训练而 manipulation 不需要？这对"sim-to-real 到底是谁的功劳"这个问题意味着什么？

@@ -13,14 +13,14 @@
 
 框架来自 Sec.2，文件 `preliminaries.tex`。
 
-- **POMDP**：$\mathcal M=(\mathcal S,\mathcal A,\mathcal T,\mathcal R,\mathcal Z,\mathcal O,\gamma)$，agent 维护一个 belief $\mathbf b_t\in\mathcal B(\mathcal S)$。目标是 Eq.1：
-  $$\pi^*=\arg\max_\pi\ \mathbb E\Big[\sum_{t=0}^{\infty}\gamma^t\mathcal R(\mathbf s_t,\pi(\mathbf b_t))\Big]$$
-  实际做 sim-to-real 时，$\mathbf b_t$ 一般就是从图像和本体感知里提出来的特征向量。仿真的定义是 $\mathcal T_s\approx\mathcal T_r$、$\mathcal O_s\approx\mathcal O_r$。
+- **POMDP**： $\mathcal M=(\mathcal S,\mathcal A,\mathcal T,\mathcal R,\mathcal Z,\mathcal O,\gamma)$，agent 维护一个 belief $\mathbf b_t\in\mathcal B(\mathcal S)$。目标是 Eq.1：
+  $$\pi^{\ast}=\arg\max_\pi\ \mathbb E\Big[\sum_{t=0}^{\infty}\gamma^t\mathcal R(\mathbf s_t,\pi(\mathbf b_t))\Big]$$
+  实际做 sim-to-real 时， $\mathbf b_t$ 一般就是从图像和本体感知里提出来的特征向量。仿真的定义是 $\mathcal T_s\approx\mathcal T_r$、 $\mathcal O_s\approx\mathcal O_r$。
 - **Reality gap**（Eq.2）描述的是环境本身，和 policy 无关：
-  $$G_{\text{dyn}}=\mathbb E_{(\mathbf s,\mathbf a)\sim\mathcal M_r}\big[D(T_{\text{sim}}(\cdot|\mathbf s,\mathbf a)\,\|\,T_{\text{real}}(\cdot|\mathbf s,\mathbf a))\big],\quad G_{\text{perc}}=\mathbb E_{\mathbf s\sim\mathcal S_r}\big[D(O_{\text{sim}}(\cdot|\mathbf s)\,\|\,O_{\text{real}}(\cdot|\mathbf s))\big]$$
+  $$G_{\text{dyn}}=\mathbb E_{(\mathbf s,\mathbf a)\sim\mathcal M_r}\big[D(T_{\text{sim}}(\cdot|\mathbf s,\mathbf a)\thinspace\Vert\thinspace T_{\text{real}}(\cdot|\mathbf s,\mathbf a))\big],\quad G_{\text{perc}}=\mathbb E_{\mathbf s\sim\mathcal S_r}\big[D(O_{\text{sim}}(\cdot|\mathbf s)\thinspace\Vert\thinspace O_{\text{real}}(\cdot|\mathbf s))\big]$$
 - **Performance gap**（Eq.3–4）依赖具体的 policy：
   $$J_{\mathcal M}(\pi)=\mathbb E_{\tau\sim p(\tau|\pi,\mathcal M)}\Big[\sum_{t=0}^{T}\gamma^tR(\mathbf s_t,\pi(\mathbf b_t))\Big],\qquad G_{\text{perf}}(\mathcal M_s,\mathcal M_r,\pi)=|J_{\mathcal M_s}(\pi)-J_{\mathcal M_r}(\pi)|$$
-- **Sim-to-real 的目标**（Eq.5）：$\pi^*=\min_\pi G_{\text{perf}}$。论点是 $G_{\text{dyn}}$ 和 $G_{\text{obs}}$ 既不可能清零，也没必要清零，只要 policy 对两个环境之间的差异足够鲁棒，就能迁移成功。
+- **Sim-to-real 的目标**（Eq.5）： $\pi^{\ast}=\min_\pi G_{\text{perf}}$。论点是 $G_{\text{dyn}}$ 和 $G_{\text{obs}}$ 既不可能清零，也没必要清零，只要 policy 对两个环境之间的差异足够鲁棒，就能迁移成功。
 - **之前卡在哪**（Sec.1）：大家习惯把 gap 当成"一个东西"来谈，其实它由大量子 gap 组成。policy 还会**利用**仿真里的建模误差和 simulator 特有的 corner case，在仿真里拿高分，到了真机上失效，甚至有危险。
 
 ## 核心方法
@@ -48,7 +48,7 @@ Fig.3 用色块标出每种方法针对哪类 gap。图例：粉 = Perception，
 |---|---|---|---|
 | **Reducing** | Improving simulation fidelity（4.1.1） | System identification（D） | 物理参数之外还要辨识系统级参数：latency、控制频率、actuation delay。近来的趋势是拿每轮真机评测的数据做在线、迭代的 sys-ID，例如 [SimOpt](../simopt/notes.md)。 |
 | | | Residual learning（D P A S） | **改输出**：学一个网络修正 simulator 预测的状态。Golemo 用 LSTM 拟合 sim 与 real 轨迹之差；Ajay 用随机 RNN 补接触的不确定性；NeuroBEM 补四旋翼的气动残差；还有 FEM 软体的修正力。**改输入**：Christiano 学一个 inverse dynamics，把仿真动作映射成真实动作；GAT 更进一步，在训练 policy 之前就把 action transformation 接进 simulator。适用于 sys-ID 失效的情况，比如用刚体去近似柔体。 |
-| | | Real-to-sim（D P A S） | 从 $\mathcal D_{\text{real}}=\{(z,a,z')_i\}_{i=1}^N$ 反推出仿真环境，分三部分：几何（SfM/MVS，或单图生成 mesh）、运动学与动力学（articulation 推断，如 Ditto、URDFormer、Real2Code；作者评价是离真实"仍有相当差距"）、渲染（NeRF、3DGS）。引到的例子有 [RialTo](../rialto/notes.md)、[X-Sim](../x-sim/notes.md)、[PhysTwin](../phystwin/notes.md)、ASID。 |
+| | | Real-to-sim（D P A S） | 从 $\mathcal D_{\text{real}}=\lbrace(z,a,z')_ i\rbrace_{i=1}^N$ 反推出仿真环境，分三部分：几何（SfM/MVS，或单图生成 mesh）、运动学与动力学（articulation 推断，如 Ditto、URDFormer、Real2Code；作者评价是离真实"仍有相当差距"）、渲染（NeRF、3DGS）。引到的例子有 [RialTo](../rialto/notes.md)、[X-Sim](../x-sim/notes.md)、[PhysTwin](../phystwin/notes.md)、ASID。 |
 | | Modalities & representations（4.1.2） | Sensor modality（P）；State repr.（P）；Action repr.（D A） | 用 depth 或点云时的 gap 比 RGB 小。keypoint、visual feature tracking、foundation-model embedding 都可以作为抽象层。操作任务里用 joint velocity 作为动作空间更有利于迁移（Aljalbout 2024）。 |
 | | Design choices（4.1.3） | Low-level controller（A）；Software alignment（D P A S）；Hardware design（D A）；System constraints（D P） | 高频 impedance 控制器；仿真和真机的软件栈保持一致（频率、滤波、安全检查）；选低延迟的执行器和噪声特性明确的传感器；先把动作限制在 quasi-static 区间。 |
 | **Overcoming** | Domain generalization & adaptation（4.2.1） | Domain randomization（D P A S） | 训练时随机化纹理、光照、观测与动作噪声、质量、惯量、延迟等参数，减少了对费力的 sys-ID 和 simulator 标定的需求（Peng 2018）。自动选分布的方法有：ADR（policy 成功后逐步扩大随机化范围）、DROPO（用离线真实数据估计 DR 范围）、SimOpt。 |
@@ -60,15 +60,15 @@ Fig.3 用色块标出每种方法针对哪类 gap。图例：粉 = Perception，
 | | Policy architecture & regularization（4.2.3） | Modularity（D P A）；Privileged information（D P A）；Representation learning（P）；Policy regularization（D） | 感知和控制解耦、分层技能；asymmetric actor-critic（critic 用特权状态）；teacher-student 蒸馏，RL loss 和蒸馏 loss 的权重可以固定（Nguyen）或按 schedule 调（Radosavovic）；Krinner 2025 把特权状态用在 state-space world model 里；DIRL 做特征分布对齐；Yoneda 在遇到真实样本时用对抗方式调整 encoder，同时加 dynamics consistency loss；用对比学习去掉背景；在 reward 里惩罚动作幅值和相邻动作差（action rate），或者用 Lipschitz 平滑 loss。 |
 
 **白板推导（补充）**：DR 和 residual 在综述里只有文字描述，下面两式是我按 Eq.3 的记号写出来的标准形式，不是论文原文：
-$$\text{DR：}\ \max_\pi\ \mathbb E_{\xi\sim p(\xi)}\big[J_{\mathcal M_s(\xi)}(\pi)\big];\qquad \text{output residual：}\ \hat{\mathbf s}_{t+1}=f_{\text{sim}}(\mathbf s_t,\mathbf a_t)+g_\phi(\mathbf s_t,\mathbf a_t)$$
-两者分别落在两大类里。DR 属于 "overcoming"，靠加宽训练分布，让 $\mathcal M_r$ 落进 $\{\mathcal M_s(\xi)\}$ 的支撑集。Residual 属于 "reducing"，直接缩小 $G_{\text{dyn}}$。
+$$\text{DR：}\ \max_\pi\ \mathbb E_{\xi\sim p(\xi)}\big[J_{\mathcal M_s(\xi)}(\pi)\big];\qquad \text{output residual：}\ \hat{\mathbf s}_ {t+1}=f_{\text{sim}}(\mathbf s_t,\mathbf a_t)+g_\phi(\mathbf s_t,\mathbf a_t)$$
+两者分别落在两大类里。DR 属于 "overcoming"，靠加宽训练分布，让 $\mathcal M_r$ 落进 $\lbrace\mathcal M_s(\xi)\rbrace$ 的支撑集。Residual 属于 "reducing"，直接缩小 $G_{\text{dyn}}$。
 
 ### C. 评测指标（Sec.5，`metrics.tex`）
 
 指标分两组：一组量 **gap 本身**，一组量**迁移效果**。
-- **SRCC**（Eq.6，Kadian 2020）：$N$ 个 policy 在仿真和真机上的任务表现（例如成功率）$(x_i,y_i)$ 的 Pearson 相关系数。作者强调，一个 simulator 就算真机平均表现高，只要 SRCC 低就仍然有问题，因为在仿真里做的改进无法预测真机上的效果。
+- **SRCC**（Eq.6，Kadian 2020）： $N$ 个 policy 在仿真和真机上的任务表现（例如成功率） $(x_i,y_i)$ 的 Pearson 相关系数。作者强调，一个 simulator 就算真机平均表现高，只要 SRCC 低就仍然有问题，因为在仿真里做的改进无法预测真机上的效果。
 - **Offline replay error**（Eq.7）：把真实轨迹的动作 open-loop 地在仿真里回放一遍，
-  $$\mathcal E_{\text{replay}}=\frac1T\sum_{t=1}^T\|\mathbf s^{\text{sim}}_t-\mathbf s^{\text{real}}_t\|^2$$
+  $$\mathcal E_{\text{replay}}=\frac1T\sum_{t=1}^T\Vert\mathbf s^{\text{sim}}_ t-\mathbf s^{\text{real}}_ t\Vert^2$$
   好处是便宜，只要有日志就能离线算。
 - **Visual fidelity**：分布级指标有 IS、FID、KID、t-SNE，单图指标有 SSIM、PSNR、IPD。
 - **迁移效果**：success rate $N_{\text{success}}/N_{\text{total}}$、cumulative reward $\sum_t r_t$、任务特定指标（路径效率、物体到目标的距离）。作者指出成功率是二值或聚合量，看不出**在哪里、为什么**失败；cumulative reward 要求仿真和真机的 reward 定义一致。
@@ -79,7 +79,7 @@ $$\text{DR：}\ \max_\pi\ \mathbb E_{\xi\sim p(\xi)}\big[J_{\mathcal M_s(\xi)}(\
 6.2 **Differentiable simulators**：Warp、Taichi、JAX、PyTorch compile。
 6.3 **Video & world models**：world model 可以用真实数据训练，"potentially creating a smaller reality gap"；但存在 compounding error、泛化差、抽象程度与真实感难以平衡、数据需求大等问题。作者预期 simulator 以后会给 world model 提供 bootstrap 数据。
 6.4 **Simulation-based inference**：
-$$p(\theta\mid\{\mathbf s^r_i\},\{\mathbf s^s_j\})\propto p(\{\mathbf s^r_i\}\mid\theta)\,p(\theta),\qquad p(\{\mathbf s^r_i\}\mid\theta)=\int p(\{\mathbf s^r_i\},\mathbf s^s\mid\theta)\,d\mathbf s^s$$
+$$p(\theta\mid\lbrace\mathbf s^r_i\rbrace,\lbrace\mathbf s^s_j\rbrace)\propto p(\lbrace\mathbf s^r_i\rbrace\mid\theta)\thinspace p(\theta),\qquad p(\lbrace\mathbf s^r_i\rbrace\mid\theta)=\int p(\lbrace\mathbf s^r_i\rbrace,\mathbf s^s\mid\theta)\thinspace d\mathbf s^s$$
 这个似然算不出来，所以用 ABC、变分推断或 neural posterior estimation（如 BayesSim）去近似。后验通常是多峰的：机械臂推方块时遇到的阻力，既可以归因于质量大，也可以归因于摩擦大，或两者都有。得到的后验可以直接作为 DR 的分布。
 6.5 **Simulation for large robotics models**：用仿真大规模生成数据（MimicGen、DexScale），以及用仿真评测真实世界的 policy（[SIMPLER](../simpler/notes.md)）。
 
@@ -103,9 +103,9 @@ $$p(\theta\mid\{\mathbf s^r_i\},\{\mathbf s^s_j\})\propto p(\{\mathbf s^r_i\}\mi
 **我读出来的**：
 1. **只有定性分类，没有量化**。给定一个平台，读者没法判断哪类 gap 占主导，综述也没有给出任何类似"gap 预算"的分解或 meta-analysis。
 2. **形式化有漏洞**：
-   - Eq.5 $\min_\pi G_{\text{perf}}$ 单独拿来当目标会退化：一个在仿真和真机上都失败的 policy，$G_{\text{perf}}=0$。真正想要的是 $J_{\mathcal M_r}$ 高。
+   - Eq.5 $\min_\pi G_{\text{perf}}$ 单独拿来当目标会退化：一个在仿真和真机上都失败的 policy， $G_{\text{perf}}=0$。真正想要的是 $J_{\mathcal M_r}$ 高。
    - Eq.2 里的 $(\mathbf s,\mathbf a)\sim\mathcal M_r$ 没说明由哪个 policy 诱导出来。
-   - 综述没有给出任何从 $G_{\text{dyn}}$、$G_{\text{perc}}$ 到 $G_{\text{perf}}$ 的上界（例如 model-based RL 里 simulation lemma 那类结果）。
+   - 综述没有给出任何从 $G_{\text{dyn}}$、 $G_{\text{perc}}$ 到 $G_{\text{perf}}$ 的上界（例如 model-based RL 里 simulation lemma 那类结果）。
    - Eq.2 写的是 $G_{\text{perc}}$，正文后面却变成 $\mathcal G_{\text{obs}}$，记号前后不一致。
    - Actuation gap 和 system gap 都没有形式化；其中 reward 不一致、reset 分布不一致这两项根本不在 Eq.2 里。
 3. **Fig.3 与正文不一致**：adversarial methods 在 Fig.3 里只标了 P，但 margin note 写的是 A、P、D。Meta learning 的 margin note 写的是"adapts the simulation parameters"，和正文把它描述成 policy 自适应相矛盾。DR 段落里还有一句孤立的 "lowest-return dynamics from an ensemble"，指的应该是 EPOpt 一类方法，但没有给引用。引用也有错配，例如 SSIM/PSNR 被引到了 IS 的论文 `salimans2016improved`。所以色块只能当粗略参考。
@@ -158,7 +158,7 @@ $$p(\theta\mid\{\mathbf s^r_i\},\{\mathbf s^s_j\})\propto p(\{\mathbf s^r_i\}\mi
 - **代码**：没有，综述本身不附代码，项目页也没有 repo。算力：论文没有报告，作为综述也不涉及。
 - **综述点名的工具**：训练用 GPU 并行仿真（Isaac Gym、Orbit、MuJoCo）；渲染较真实的 simulator 有 Isaac Sim、CARLA、AirSim、Habitat-Sim；可微仿真用 Warp、Taichi、JAX；policy 评测用 SIMPLER。诊断指标推荐 SRCC（Eq.6）、offline replay error（Eq.7）、FID/KID/SSIM/PSNR。
 - **最小可复现实验**（sim-to-sim 形式的"gap 审计"）：
-  - **搭环境**：在 [legged-gym](../legged-gym/notes.md) 或 MuJoCo 里准备两份环境，一份标称环境 $\mathcal M_s$，一份作为"伪真实"的 $\mathcal M_r$。$\mathcal M_r$ 相对 $\mathcal M_s$ 做以下改动：执行器加一阶低通和延迟，质量和摩擦加偏置，观测噪声改成有时间相关性的。这些改动分别对应 Sec.3.3.1、3.1.2、3.2.2。
+  - **搭环境**：在 [legged-gym](../legged-gym/notes.md) 或 MuJoCo 里准备两份环境，一份标称环境 $\mathcal M_s$，一份作为"伪真实"的 $\mathcal M_r$。 $\mathcal M_r$ 相对 $\mathcal M_s$ 做以下改动：执行器加一阶低通和延迟，质量和摩擦加偏置，观测噪声改成有时间相关性的。这些改动分别对应 Sec.3.3.1、3.1.2、3.2.2。
   - **训练**：用 PPO 训三组 policy：(a) 标称参数，(b) DR，(c) 先用 $\mathcal M_r$ 的日志做 sys-ID 再训。
   - **测量**：每组都算 $G_{\text{perf}}$（Eq.4）和 $J_{\mathcal M_r}$，用 $\mathcal M_r$ 的动作日志算 $\mathcal E_{\text{replay}}$，再在 $N$ 个 checkpoint 上算 SRCC。
   - **要检验的问题**：replay error 能不能预测 $G_{\text{perf}}$；DR 是否降低了 $G_{\text{perf}}$，代价是不是 $J_{\mathcal M_s}$ 下降。

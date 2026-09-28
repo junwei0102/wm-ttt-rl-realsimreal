@@ -147,7 +147,7 @@ World model 是一个学出来的预测模型：给定历史观测和动作，�
 **前置 checklist**
 - [ ] MPC 与基于采样的轨迹优化（CEM / MPPI：elite、warm start、receding horizon）
 - [ ] BYOL / SPR 式 self-predictive 表示学习；REDQ 式 Q ensemble
-- [ ] Score-based diffusion 与 EDM（preconditioning、$c_{\rm skip}$、log-normal σ 采样），以及它和 DDPM ε-prediction 的区别
+- [ ] Score-based diffusion 与 EDM（preconditioning、 $c_{\rm skip}$、log-normal σ 采样），以及它和 DDPM ε-prediction 的区别
 - [ ] Atari 100k 的评测口径：HNS、IQM、stratified bootstrap CI
 - [ ] （第 2 题用）test-time training 的基本含义：部署时用无标签信号更新参数，而不只是多花推理算力，见 02 线的 [TTT](../02_test_time_training/ttt-self-supervised/notes.md)
 
@@ -267,7 +267,7 @@ World model 是一个学出来的预测模型：给定历史观测和动作，�
    - Dreamer 和 DreamerV3 都没有不确定性估计，也没有量化 imagination 中的 model error。
    - DIAMOND 的 reward 模型在真实帧上训练、在生成帧上推理，这里的分布偏移没有量化。
    - Dreamer 4 纯离线训练，只靠 BC prior 的反向 KL 加冻结 transformer 来约束。
-   - 只有 TD-MPC2 的附录 J 试过在规划时加不确定性惩罚：$c=0.01$ 时从 56.54 升到 62.01，但正文实验没有采用。
+   - 只有 TD-MPC2 的附录 J 试过在规划时加不确定性惩罚： $c=0.01$ 时从 56.54 升到 62.01，但正文实验没有采用。
    - 在大规模 WM 里，怎样做 uncertainty-aware 的 imagination，仍然没有答案。
 
 4. **动作可控性，以及需要多少动作数据**

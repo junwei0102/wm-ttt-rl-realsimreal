@@ -10,7 +10,7 @@
 ## 问题设定
 
 - **目标**：在已经 SFT 过的 VLA 上继续做 online RL 后训练，缓解 SFT 的两个瓶颈：示范数据稀缺，以及分布外泛化差（§1）。
-- **输入/输出**（`2_preliminary.tex` Eq.4–5）：状态是 $s_t=(o^{vis}_t,o^{prop}_t,l_{task})$。本文实现只用单视角图像、语言指令和本体状态（LIBERO 上连本体状态也不用），不用腕部相机。输出是长度为 $k$ 的 action chunk，每一维都离散成 action token，模型一共配置 256 个 action token（§4.1）。
+- **输入/输出**（`2_preliminary.tex` Eq.4–5）：状态是 $s_t=(o^{vis}_ t,o^{prop}_ t,l_{task})$。本文实现只用单视角图像、语言指令和本体状态（LIBERO 上连本体状态也不用），不用腕部相机。输出是长度为 $k$ 的 action chunk，每一维都离散成 action token，模型一共配置 256 个 action token（§4.1）。
 - **假设**：
   1. 有能大规模并行、可重置的仿真器：LIBERO、RoboTwin 1.0/2.0。
   2. 仿真器能判定任务是否成功（`is_successful`）；论文不另设计任何过程奖励。
@@ -28,7 +28,7 @@
 
 具体改动是：用 LLaMA2 的输出头给出 action token 上的 softmax，训练用 cross-entropy；官方 OFT 用的是 MLP 输出连续动作、L1 回归。因为改了头，官方 checkpoint 不能直接用，作者按官方的数据和超参从头重做了 SFT。
 
-保留了 OFT 的 parallel decoding 和 action chunking：一次前向就输出整个 chunk 的所有 token。据此可推断 $\log\pi(\text{chunk}\mid s)=\sum_j\log\pi(\text{token}_j\mid s)$，每个 token 各有一个 ratio（这是笔记的推断，论文没有写出这个式子；论文只说用"action token probabilities"算 GRPO loss，§3 开头）。探索方式和 LLM 相同，就是温度采样 $\mathrm{softmax}(f_\theta(s)/T)$（Eq.2 的 VLA 版本）。
+保留了 OFT 的 parallel decoding 和 action chunking：一次前向就输出整个 chunk 的所有 token。据此可推断 $\log\pi(\text{chunk}\mid s)=\sum_j\log\pi(\text{token}_ j\mid s)$，每个 token 各有一个 ratio（这是笔记的推断，论文没有写出这个式子；论文只说用"action token probabilities"算 GRPO loss，§3 开头）。探索方式和 LLM 相同，就是温度采样 $\mathrm{softmax}(f_\theta(s)/T)$（Eq.2 的 VLA 版本）。
 
 **2. 交互式 rollout（Listing 1）。** veRL 原本一次调用 `policy.generate` 就完成生成。本文改成下面的循环：
 
@@ -40,25 +40,27 @@
 循环在全部环境完成或达到最大步数时结束。最大步数在 LIBERO 上是 512，在 RoboTwin 上按任务取 200、400 或 800。训练、推理和渲染整合在同一个框架里。
 
 **3. 结果奖励（Eq.9）。**
-$$R(a_{i,t}\mid s_{i,t})=\begin{cases}1,&\text{traj}_i\ \text{成功}\\0,&\text{otherwise}\end{cases}$$
+
+$$R(a_{i,t}\mid s_{i,t})=\begin{cases}1,&\text{traj}_ i\ \text{成功}\cr0,&\text{otherwise}\end{cases}$$
+
 轨迹级的奖励原样分给这条轨迹里的每个 action token。没有折扣，也没有逐步的 credit assignment。
 
 **4. 去掉 KL 的 GRPO（Eq.11–12；原版 GRPO 见 Eq.7–8）。**
 $$\mathcal J(\theta)=\mathbb E\Big[\tfrac1G\sum_{i=1}^G\tfrac1{|a_i|}\sum_{t=1}^{|a_i|}\min\big(r_{i,t}\hat A_i,\ \mathrm{clip}(r_{i,t},1-\varepsilon_{low},1+\varepsilon_{high})\hat A_i\big)\Big]$$
-$$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid s_{i,t})},\qquad \hat A_i=\frac{R_i-\mathrm{mean}(\{R\})}{\mathrm{std}(\{R\})},\qquad \text{s.t. }0<\#\{\text{成功}\}<G$$
+$$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid s_{i,t})},\qquad \hat A_i=\frac{R_i-\mathrm{mean}(\lbrace R\rbrace)}{\mathrm{std}(\lbrace R\rbrace)},\qquad \text{s.t. }0<{\char"23}\lbrace\text{成功}\rbrace<G$$
 
 - 式中 $t$ 遍历轨迹 $i$ 的全部 action token（论文记号 $|a_i|$ 没有明确说是 token 数还是时间步数；这里按 §3.2"奖励均匀传到每个 action token"来理解）。
-- 和 Eq.7 相比，这里删掉了 $-\beta D_{KL}(\pi_\theta\|\pi_{ref})$。论文给的理由有两条：不再需要 reference model，省显存、训练更快；也不再把策略拴在 SFT 分布附近。
+- 和 Eq.7 相比，这里删掉了 $-\beta D_{KL}(\pi_\theta\Vert\pi_{ref})$。论文给的理由有两条：不再需要 reference model，省显存、训练更快；也不再把策略拴在 SFT 分布附近。
 
 **白板推导**（这是我的推导，论文里没有）：组内有 $k$ 条成功时，记 $p=k/G$。用总体标准差 $\sqrt{p(1-p)}$ 算，成功轨迹 $\hat A=\sqrt{(1-p)/p}$，失败轨迹 $\hat A=-\sqrt{p/(1-p)}$。
 
-- $G=8$、$k=1$ 时，成功轨迹约 +2.65，失败轨迹约 −0.38。成功越少见，那一条成功轨迹被放大得越多。
+- $G=8$、 $k=1$ 时，成功轨迹约 +2.65，失败轨迹约 −0.38。成功越少见，那一条成功轨迹被放大得越多。
 - $k=0$ 或 $k=G$ 时 std 为 0，advantage 退化为 0，梯度消失。这就是 dynamic sampling 要处理的问题。
 
 **5. 三个探索增强（§3.3，都是从 LLM RL 借来的）。**
 - **Dynamic sampling**（DAPO、PRIME）：丢掉全成功或全失败的组，一直采样到 batch 里只剩结果有好有坏的组（Eq.10）。
 - **Clip-higher**（DAPO）：clip 区间从 [0.8, 1.2] 改成 [0.8, 1.28]，让低概率 token 的概率可以涨得更多。
-- **提高 rollout 温度**：$T$ 从 1.0 调到 1.6。
+- **提高 rollout 温度**： $T$ 从 1.0 调到 1.6。
 
 论文的动机是：示范轨迹很同质，VLA 容易收敛到很窄的几种解法；成功率越低，越需要探索。
 
@@ -66,8 +68,8 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 
 **超参**（§4.1）：
 - 优化：全参数训练，lr $5\times10^{-6}$，train batch 64，mini-batch 128。
-- 采样：每个输入采 8 条（$G=8$），$T=1.6$。
-- 裁剪：$\varepsilon_{low}=0.2$，$\varepsilon_{high}=0.28$。
+- 采样：每个输入采 8 条（ $G=8$）， $T=1.6$。
+- 裁剪： $\varepsilon_{low}=0.2$， $\varepsilon_{high}=0.28$。
 - action chunk：LIBERO 为 8，RoboTwin 为 25。
 
 ## 关键实验与证据
@@ -161,7 +163,7 @@ $$r_{i,t}=\frac{\pi_\theta(a_{i,t}\mid s_{i,t})}{\pi_{\theta_{old}}(a_{i,t}\mid 
 - **算力**：论文只写了用 8×A800 80GB 做全参数训练（§4.1），**没有报告训练时长或 GPU·小时**。README 给出的测试配置是单机 8×A800，或双机 16×A800。
 - **数据与仿真**：LIBERO（robosuite/MuJoCo）或 RoboTwin 2.0。rollout 需要大量并行的环境进程，CPU 和渲染容易成为瓶颈。
 - **最小可复现实验**：用官方的 libero-10（即 LIBERO-Long）traj1 SFT checkpoint，论文中它的成功率是 17.3%。
-  1. 按 §4.1 的超参做 RL：$G=8$、$T=1.6$、clip [0.8, 1.28]、不加 KL、开 dynamic sampling。跑约 250–300 个 step（参照 Figure 1/3 的横轴），用 greedy 解码在 10 个任务 × 50 个场景上评测，目标是接近 Table 5 的 91.7。
+  1. 按 §4.1 的超参做 RL： $G=8$、 $T=1.6$、clip [0.8, 1.28]、不加 KL、开 dynamic sampling。跑约 250–300 个 step（参照 Figure 1/3 的横轴），用 greedy 解码在 10 个任务 × 50 个场景上评测，目标是接近 Table 5 的 91.7。
   2. 做消融：把温度改回 $T=1.0$，或关掉 dynamic sampling，看能否复现 Figure 3 中约 15 个点的差距。
   3. 每 20 个 step 记录一次两个量：结果有好有坏的组所占比例，以及平均 token 熵。用它们检验探索技巧到底通过什么起作用。
 - **预计难点**：

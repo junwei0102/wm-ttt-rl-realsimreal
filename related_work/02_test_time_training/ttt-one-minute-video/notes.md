@@ -22,13 +22,13 @@
 
 **1. TTT layer 回顾**（`source/sec/2_prelim.tex`）。把隐状态当作模型 $f$ 的权重 $W$，每读一个 token 就做一步梯度下降（Eq.1）：
 
-$$W_t = W_{t-1} - \eta\,\nabla\ell(W_{t-1};x_t)$$
+$$W_t = W_{t-1} - \eta\thinspace\nabla\ell(W_{t-1};x_t)$$
 
 自监督损失是多视角重建，用三组投影（Eq.4、Eq.5）：
 
-$$\ell(W;x_t)=\|f(\theta_K x_t;W)-\theta_V x_t\|^2,\qquad z_t=f(\theta_Q x_t;W_t)$$
+$$\ell(W;x_t)=\Vert f(\theta_K x_t;W)-\theta_V x_t\Vert^2,\qquad z_t=f(\theta_Q x_t;W_t)$$
 
-- inner loop 只优化 $W$。$\theta_K,\theta_V,\theta_Q$ 在 outer loop 里学，作用类似 attention 的 K/V/Q。
+- inner loop 只优化 $W$。 $\theta_K,\theta_V,\theta_Q$ 在 outer loop 里学，作用类似 attention 的 K/V/Q。
 - 对 $\nabla\ell$ 反向传播就是 gradients of gradients。
 - TTT-MLP 的 $f(x)=x+\texttt{LN}(f_\texttt{MLP}(x))$，其中 $f_\texttt{MLP}$ 的隐层宽度是输入的 4×，激活用 GELU（§2.3）。
 - inner-loop 学习率 $\eta$：TTT-MLP 取 0.1，TTT-Linear 取 1.0（附录 A）。
@@ -40,13 +40,13 @@ $$\ell(W;x_t)=\|f(\theta_K x_t;W)-\theta_V x_t\|^2,\qquad z_t=f(\theta_Q x_t;W_t
   $\alpha$ 初始化为 0.1，所以 $\tanh(\alpha)\approx0.1$。这样随机初始化的 TTT 层一开始不会明显覆盖 $X$（预训练表征），同时 TTT 仍能对输出有所贡献（论文称这是沿用 Flamingo 的 standard practice）。
 - **Bi-direction**（Eq.7）：DiT 是 non-causal 的，所以再反向扫一遍：
   $$\texttt{TTT}'(X)=\texttt{rev}(\texttt{TTT}(\texttt{rev}(X)))$$
-- **修改后的 block**（Eq.8–12）：原 block 是 $X'=\texttt{self\_attn}(\texttt{LN}(X))$、$Y=X'+X$。改成：
+- **修改后的 block**（Eq.8–12）：原 block 是 $X'=\verb|self_attn|(\texttt{LN}(X))$、 $Y=X'+X$。改成：
   $$Z=\texttt{gate}(\texttt{TTT},X';\alpha),\quad Z'=\texttt{gate}(\texttt{TTT}',Z;\beta),\quad Y=Z'+X$$
-  正向和反向共享 $\theta_K,\theta_V,\theta_Q$，门控参数 $\alpha$、$\beta$ 分开。MLP block 不动。
+  正向和反向共享 $\theta_K,\theta_V,\theta_Q$，门控参数 $\alpha$、 $\beta$ 分开。MLP block 不动。
 
 **3. 序列组织：local attention + global TTT**（§3.2，Figure 3 右）
 
-- 每个 3 秒片段做成一个 sequence segment：先放该段文字的 text token，后接该段的 video token。$n$ 个 segment 首尾拼接，得到文字和视频交错的长序列。
+- 每个 3 秒片段做成一个 sequence segment：先放该段文字的 text token，后接该段的 video token。 $n$ 个 segment 首尾拼接，得到文字和视频交错的长序列。
 - self-attention 只在每个 segment 内部做。受预处理影响，相邻 segment 重叠 1 个 latent frame，即 1350 token。
 - TTT 层扫描整条序列。所以**跨片段的信息只能经过 TTT 层（外加那 1 帧重叠）传递**。
 
@@ -61,7 +61,7 @@ $$W_{ib}=W_{(i-1)b}-\frac{\eta}{b}\sum_{t=(i-1)b+1}^{ib}\nabla\ell(W_{(i-1)b};x_
 **5. On-chip Tensor Parallel**（§3.5，附录 B，Figure 4）
 
 - 问题：TTT-MLP 的隐状态 $W^{(1)},W^{(2)}$ 加上激活，放不进单个 SM 的 SMEM。
-- 做法：把每个 SM 当成一张"GPU"来做 Megatron 式切分。$W^{(1)}$ 按列切，$W^{(2)}$ 按行切。GELU 是逐元素的，所以前向算 inner loss 只需要一次 reduction，这次 AllReduce 用 Hopper 的 DSMEM 在 SM 之间完成。
+- 做法：把每个 SM 当成一张"GPU"来做 Megatron 式切分。 $W^{(1)}$ 按列切， $W^{(2)}$ 按行切。GELU 是逐元素的，所以前向算 inner loss 只需要一次 reduction，这次 AllReduce 用 Hopper 的 DSMEM 在 SM 之间完成。
 - 效果：隐状态只在开头加载、结尾写回时经过 HBM。
 - 其他工程：用 ThunderKittens 实现；借用 FlashAttention-3 的 producer-consumer 异步预取；沿序列维度做 gradient checkpointing；用 TMA 做异步写回。
 
@@ -80,10 +80,10 @@ $$W_{ib}=W_{(i-1)b}-\frac{\eta}{b}\sum_{t=(i-1)b+1}^{ib}\nabla\ell(W_{(i-1)b};x_
   第 2 阶段起冻结其余参数，目的是少遗忘预训练的世界知识。长视频训练数据由相邻的 3 秒片段拼接而成。
 - 其他训练配置（附录 A）：
   - 损失用 v-prediction，1000 步噪声日程，最后一步强制 Zero-SNR；
-  - AdamW，$(\beta_1,\beta_2)=(0.9,0.95)$，batch size 64，grad clip 0.1，weight decay 1e-4；
+  - AdamW， $(\beta_1,\beta_2)=(0.9,0.95)$，batch size 64，grad clip 0.1，weight decay 1e-4；
   - text dropout 0.1，FSDP2 混合精度。
 - **推理**：DDIM 50 步；动态 CFG，强度从 1 增到 4；使用 negative prompt。
-- 我的推断（论文没有明说）：每个去噪步都要把整条约 34 万 token 的序列送进网络，每个 TTT 层在正、反两个方向上各跑一遍完整的 inner loop，按 $T/b$ 算约 5.3k 个 mini-batch。$W$ 会不会跨序列保留、$W_0$ 是否可学，本文都没写；[TTT layers](../ttt-layers/notes.md) 里 $W_0$ 是 outer loop 学的。
+- 我的推断（论文没有明说）：每个去噪步都要把整条约 34 万 token 的序列送进网络，每个 TTT 层在正、反两个方向上各跑一遍完整的 inner loop，按 $T/b$ 算约 5.3k 个 mini-batch。 $W$ 会不会跨序列保留、 $W_0$ 是否可学，本文都没写；[TTT layers](../ttt-layers/notes.md) 里 $W_0$ 是 outer loop 学的。
 
 ## 关键实验与证据
 
@@ -133,7 +133,7 @@ $$W_{ib}=W_{(i-1)b}-\frac{\eta}{b}\sum_{t=(i-1)b+1}^{ib}\nabla\ell(W_{(i-1)b};x_
 
 TTT-MLP 的推理和训练分别比 GDN 慢 1.4× 和 2.1×（§4.4）。
 
-**消融**：论文**没有**针对组件的消融，gate 的初值、bi-direction、$b$、片段长度、阶段数都没做。唯一接近消融的是 TTT-Linear 对 TTT-MLP，但只在 18 秒上比了，两者只差 3 分（1001 对 1004）。
+**消融**：论文**没有**针对组件的消融，gate 的初值、bi-direction、 $b$、片段长度、阶段数都没做。唯一接近消融的是 TTT-Linear 对 TTT-MLP，但只在 18 秒上比了，两者只差 3 分（1001 对 1004）。
 
 ## 局限与论文没说的
 
@@ -187,7 +187,7 @@ TTT-MLP 的推理和训练分别比 GDN 慢 1.4× 和 2.1×（§4.4）。
 1. **Latent video diffusion 与 DiT**：v-prediction、DDIM、CFG、adaLN；VAE 如何把视频变成 token。
 2. **self-attention 的二次复杂度**；local attention 和 sliding-window attention 的区别。
 3. **Linear attention / modern RNN**：Mamba 2、DeltaNet 和 Gated DeltaNet 的矩阵隐状态及其 update rule。
-4. **[TTT layers](../ttt-layers/notes.md)**：inner loop 与 outer loop，$\theta_K/\theta_V/\theta_Q$，mini-batch TTT，fast weights，gradients of gradients（meta-learning）。
+4. **[TTT layers](../ttt-layers/notes.md)**：inner loop 与 outer loop， $\theta_K/\theta_V/\theta_Q$，mini-batch TTT，fast weights，gradients of gradients（meta-learning）。
 5. **微调预训练大模型的技巧**：零附近初始化的门控（Flamingo），分阶段 context extension。
 6. **GPU 存储层次**：HBM 与 SMEM、kernel fusion（FlashAttention）、Megatron 式 Tensor Parallel。读 §3.5 需要。
 7. **Elo / Bradley–Terry 式人类偏好评测**。
@@ -199,7 +199,7 @@ TTT-MLP 的推理和训练分别比 GDN 慢 1.4× 和 2.1×（§4.4）。
 - **算力**：整个训练折合 256 张 H100 跑 50 小时（§1）。论文没有报告各阶段分别用了多少算力。步数和 batch size 见 Table 2 和附录 A。另外还要算上人工标注故事板和人评的成本。
 - **最小可复现实验**（建议）：
   1. **机制级 toy 实验**（1–8 卡，纯 PyTorch）：
-     - 按 Eq.13–14（$b=64$）实现 TTT-MLP，加上 bi-direction 和 tanh gate，插进一个小型 non-causal DiT 或 Transformer。
+     - 按 Eq.13–14（ $b=64$）实现 TTT-MLP，加上 bi-direction 和 tanh gate，插进一个小型 non-causal DiT 或 Transformer。
      - 数据用合成的多片段长序列：第 1 段设定一个物体的身份或颜色，后面第 $k$ 段必须复现。
      - attention 只在片段内做。比较 local only、+TTT-Linear、+TTT-MLP、+Mamba 2 / Gated DeltaNet（可用 `fla` 库）。
      - 随片段数增加，用自动一致性指标检验 Table 3 → Table 1 的"交叉"是否出现。**顺带补上论文缺的长上下文 TTT-Linear vs TTT-MLP 对比**。

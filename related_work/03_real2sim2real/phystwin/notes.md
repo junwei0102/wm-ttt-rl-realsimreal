@@ -9,30 +9,30 @@ PhysTwin 从一段三视角 RGB-D 交互视频里重建可形变物体的 digita
 
 ## 问题设定
 
-- **输入**：3 台 RealSense-D455 拍摄的 RGB-D 视频 $\mathbf O_{t,i}=(\mathbf I,\mathbf D)$，内容是人手与物体的交互（快速提起、拉伸、推、挤压，单手或双手），每段 1–10 s（`experiments.tex` §5.1）。**action 是手**：先用 Grounded-SAM2 分割手的 mask，再用 CoTracker3 跟踪，反投影到 3D 后做 farthest-point sampling，得到一组控制点，$a_t$ 就是这些控制点的位置（`method.tex` §4.2.1）。
+- **输入**：3 台 RealSense-D455 拍摄的 RGB-D 视频 $\mathbf O_{t,i}=(\mathbf I,\mathbf D)$，内容是人手与物体的交互（快速提起、拉伸、推、挤压，单手或双手），每段 1–10 s（`experiments.tex` §5.1）。**action 是手**：先用 Grounded-SAM2 分割手的 mask，再用 CoTracker3 跟踪，反投影到 3D 后做 farthest-point sampling，得到一组控制点， $a_t$ 就是这些控制点的位置（`method.tex` §4.2.1）。
 - **输出**：一个 PhysTwin，包括几何与拓扑 $\mathcal G_0$、物理参数 $\alpha$（稠密弹簧刚度、碰撞参数、阻尼、控制点连接参数）和外观 $\theta$（3D Gaussians）。给定任意新的控制点轨迹，它都能前向仿真并渲染。
 - **假设**：物体可以用 spring-mass 表示；首帧状态就是 canonical/rest 状态（`problem_statement.tex` 脚注）；手与物体的接触用"控制点和附近物体点之间连弹簧"来建模；只用每段视频前 70% 的帧（训练段）构建 twin。
 - **之前卡在哪**（§1–2）：(1) dynamic NeRF 和 dynamic 3DGS 只能复现观测到的运动，不含物理，所以做不了 action-conditioned 预测。(2) 学习式 neural dynamics（GNN，例如 GS-Dynamics）需要大量数据，而且只适用于特定物体和特定动作。(3) physics-based 方法（PhysGaussian、PhysDreamer、PAC-NeRF、Spring-Gaus）要么手动设定参数，要么需要预扫描形状或稠密视角。作者还指出，最接近的 Spring-Gaus "过度正则"、缺少动量守恒和真实重力，而且不支持 action 输入。
 
 ## 核心方法
 
-**1. 物理模型**（`source/sections/problem_statement.tex` Eq. 1 及其后的更新式；原文 Eq. 1 没加括号，求和范围有歧义；这里按物理含义把 spring 与 dashpot 两项括进求和号，$\mathbf F^{\text{ext}}$ 放在外面）
+**1. 物理模型**（`source/sections/problem_statement.tex` Eq. 1 及其后的更新式；原文 Eq. 1 没加括号，求和范围有歧义；这里按物理含义把 spring 与 dashpot 两项括进求和号， $\mathbf F^{\text{ext}}$ 放在外面）
 
-$$\mathbf F_i=\sum_{(i,j)\in\mathcal E}\Big[k_{ij}\big(\|\mathbf x_j-\mathbf x_i\|-l_{ij}\big)\frac{\mathbf x_j-\mathbf x_i}{\|\mathbf x_j-\mathbf x_i\|}-\gamma(\mathbf v_i-\mathbf v_j)\Big]+\mathbf F_i^{\text{ext}}$$
+$$\mathbf F_i=\sum_{(i,j)\in\mathcal E}\Big[k_{ij}\big(\Vert\mathbf x_j-\mathbf x_i\Vert-l_{ij}\big)\frac{\mathbf x_j-\mathbf x_i}{\Vert\mathbf x_j-\mathbf x_i\Vert}-\gamma(\mathbf v_i-\mathbf v_j)\Big]+\mathbf F_i^{\text{ext}}$$
 
-$$\mathbf v_i^{t+1}=\delta\Big(\mathbf v_i^t+\Delta t\,\frac{\mathbf F_i}{m_i}\Big),\qquad \mathbf x_i^{t+1}=\mathbf x_i^t+\Delta t\,\mathbf v_i^{t+1}$$
+$$\mathbf v_i^{t+1}=\delta\Big(\mathbf v_i^t+\Delta t\thinspace\frac{\mathbf F_i}{m_i}\Big),\qquad \mathbf x_i^{t+1}=\mathbf x_i^t+\Delta t\thinspace\mathbf v_i^{t+1}$$
 
-各符号含义：$k_{ij}$ 是每根弹簧各自的刚度（稠密参数）；$l_{ij}$ 是 rest length，取自首帧；$\gamma$ 是 dashpot 阻尼；$\delta$ 是 drag damping；$\mathbf F^{\text{ext}}$ 包括重力、impulse-based 碰撞（物体与 collider 之间、物体自身各点之间）和控制交互。整体记作 $\mathbf X_{t+1}=f_{\alpha,\mathcal G_0}(\mathbf X_t,a_t)$。另外，用 $\mathbf v^{t+1}$ 去更新 $\mathbf x$ 其实是 semi-implicit（symplectic）Euler，论文把它叫作 explicit Euler。
+各符号含义： $k_{ij}$ 是每根弹簧各自的刚度（稠密参数）； $l_{ij}$ 是 rest length，取自首帧； $\gamma$ 是 dashpot 阻尼； $\delta$ 是 drag damping； $\mathbf F^{\text{ext}}$ 包括重力、impulse-based 碰撞（物体与 collider 之间、物体自身各点之间）和控制交互。整体记作 $\mathbf X_{t+1}=f_{\alpha,\mathcal G_0}(\mathbf X_t,a_t)$。另外，用 $\mathbf v^{t+1}$ 去更新 $\mathbf x$ 其实是 semi-implicit（symplectic）Euler，论文把它叫作 explicit Euler。
 
 **2. 总目标**（`source/sections/method.tex` Eq. 2）
 
-$$\min_{\alpha,\mathcal G_0,\theta}\sum_{t,i}C(\hat{\mathbf O}_{t,i},\mathbf O_{t,i})\quad\text{s.t.}\quad \hat{\mathbf O}_{t,i}=g_\theta(\hat{\mathbf X}_t,i),\ \ \hat{\mathbf X}_{t+1}=f_{\alpha,\mathcal G}(\hat{\mathbf X}_t,a_t)$$
+$$\min_{\alpha,\mathcal G_0,\theta}\sum_{t,i}C(\hat{\mathbf O}_ {t,i},\mathbf O_{t,i})\quad\text{s.t.}\quad \hat{\mathbf O}_ {t,i}=g_\theta(\hat{\mathbf X}_ t,i),\ \ \hat{\mathbf X}_ {t+1}=f_{\alpha,\mathcal G}(\hat{\mathbf X}_ t,a_t)$$
 
-（原文 Eq. 2 约束里的下标写作 $\mathcal G$，而 Eq. 3 和 §3 写作 $\mathcal G_0$，应是同一个量。）其中 $C=C_{\text{geometry}}+C_{\text{motion}}+C_{\text{render}}$。从结构上看，$f$ 是 transition，$g_\theta$ 是 observation model，和 latent world model 的形式一样，区别在于这里的 state 是有物理意义的质点。整个问题拆成两个阶段优化（Fig. 2）。
+（原文 Eq. 2 约束里的下标写作 $\mathcal G$，而 Eq. 3 和 §3 写作 $\mathcal G_0$，应是同一个量。）其中 $C=C_{\text{geometry}}+C_{\text{motion}}+C_{\text{render}}$。从结构上看， $f$ 是 transition， $g_\theta$ 是 observation model，和 latent world model 的形式一样，区别在于这里的 state 是有物理意义的质点。整个问题拆成两个阶段优化（Fig. 2）。
 
 **3. 第一阶段：物理与几何**（`method.tex` Eq. 3）
 
-$$\min_{\alpha,\mathcal G_0}\sum_t\Big(C_{\text{geometry}}(\hat{\mathbf X}_t,\mathbf X_t)+C_{\text{motion}}(\hat{\mathbf X}_t,\mathbf X_t)\Big)\quad\text{s.t.}\ \hat{\mathbf X}_{t+1}=f_{\alpha,\mathcal G_0}(\hat{\mathbf X}_t,a_t)$$
+$$\min_{\alpha,\mathcal G_0}\sum_t\Big(C_{\text{geometry}}(\hat{\mathbf X}_ t,\mathbf X_t)+C_{\text{motion}}(\hat{\mathbf X}_ t,\mathbf X_t)\Big)\quad\text{s.t.}\ \hat{\mathbf X}_ {t+1}=f_{\alpha,\mathcal G_0}(\hat{\mathbf X}_ t,a_t)$$
 
 - $C_{\text{geometry}}$ 是单向 Chamfer distance，方向是从部分观测点云到完整的预测状态，所以看不见的部分不会被惩罚。
 - $C_{\text{motion}}$ 是预测点与 3D pseudo-GT 轨迹之间的误差；pseudo-GT 由 CoTracker3 的 2D 跟踪结果经深度反投影得到。论文没有细说跟踪点和质点之间怎么对应。
@@ -48,11 +48,11 @@ $$\min_{\alpha,\mathcal G_0}\sum_t\Big(C_{\text{geometry}}(\hat{\mathbf X}_t,\ma
 
 **4. 第二阶段：外观**（`method.tex` Eq. 4）
 
-$\min_\theta\sum_{t,i}C_{\text{render}}(\hat{\mathbf I}_{i,t},\mathbf I_{i,t})$，其中 $C_{\text{render}}$ 是 L1 加 D-SSIM。为了简单，只在 $t=0$ 优化，并把 Gaussians 限制为各向同性，防止形变时出现尖刺伪影。动态渲染用 LBS 实现（`main.tex` 附录 B，Eq. 5–8）：
+$\min_\theta\sum_{t,i}C_{\text{render}}(\hat{\mathbf I}_ {i,t},\mathbf I_{i,t})$，其中 $C_{\text{render}}$ 是 L1 加 D-SSIM。为了简单，只在 $t=0$ 优化，并把 Gaussians 限制为各向同性，防止形变时出现尖刺伪影。动态渲染用 LBS 实现（`main.tex` 附录 B，Eq. 5–8）：
 
-$$R_i^t=\arg\min_{R\in SO(3)}\sum_{j\in\mathcal N(i)}\big\|R(\hat\mu_j^t-\hat\mu_i^t)-(\hat\mu_j^{t+1}-\hat\mu_i^{t+1})\big\|^2$$
+$$R_i^t=\arg\min_{R\in SO(3)}\sum_{j\in\mathcal N(i)}\big\Vert R(\hat\mu_j^t-\hat\mu_i^t)-(\hat\mu_j^{t+1}-\hat\mu_i^{t+1})\big\Vert^2$$
 
-$$\mu_j^{t+1}=\sum_{k\in\mathcal N(j)}w_{jk}^t\big(R_k^t(\mu_j^t-\hat\mu_k^t)+\hat\mu_k^t+T_k^t\big),\quad q_j^{t+1}=\Big(\sum_k w_{jk}^t r_k^t\Big)\otimes q_j^t,\quad w_{jk}^t\propto\|\mu_j^t-\hat\mu_k\|^{-1}$$
+$$\mu_j^{t+1}=\sum_{k\in\mathcal N(j)}w_{jk}^t\big(R_k^t(\mu_j^t-\hat\mu_k^t)+\hat\mu_k^t+T_k^t\big),\quad q_j^{t+1}=\Big(\sum_k w_{jk}^t r_k^t\Big)\otimes q_j^t,\quad w_{jk}^t\propto\Vert\mu_j^t-\hat\mu_k\Vert^{-1}$$
 
 **5. 使用方式**。给出一条新的控制点轨迹（来自键盘、遥操作，或 planner 给出的机械臂动作），控制点用弹簧连到物体上，Warp 做前向仿真，再由 LBS 驱动 Gaussians 渲染。遇到新交互时，先用配准流程把 twin 对齐到目标序列的首帧（§5.2）。
 
@@ -101,7 +101,7 @@ $$\mu_j^{t+1}=\sum_{k\in\mathcal N(j)}w_{jk}^t\big(R_k^t(\mu_j^t-\hat\mu_k^t)+\h
 - **前驱**：Spring-Gaus（spring-mass 加 3DGS，从视频学物理，是本文最直接的比较对象）；GS-Dynamics（同组的 Kaifeng Zhang、Yunzhu Li，用 GNN 从真实视频学动力学、用 Gaussian LBS 渲染，本文沿用了它的 LBS）；PhysGaussian、PhysDreamer、PAC-NeRF；可微软体多体仿真（Qiao et al. 2021）和 DiffPD 这类基于可微仿真的 system identification。用到的工具有 TRELLIS、CoTracker3、Grounded-SAM2、CMA-ES 和 NVIDIA Warp。思路上，[SimOpt](../simopt/notes.md) 同样根据真实轨迹与仿真的 discrepancy 反推仿真参数，也用 zero-order 采样来更新；PhysTwin 把对象换成可形变物体，参数从少量几维扩展到上万维，高维部分靠可微仿真做 first-order 优化。
 - **后继 / 影响**：[Reality Gap 综述](../survey-reality-gap/notes.md) 把它归入 "Real-to-Sim First"（见 `survey-reality-gap/source/chapters/solutions.tex`）。以下信息来自官方 repo README，不是论文内容：2026-03 发布了 PhysTwin-MPC（基于 MPPI 的 planning 参考实现）；后续工作 Boba（ECCV 2026）做批量仿真，README 称其 demo 在 3 分钟内训出一个绳子操作的 RL policy。在本项目 related_work 的源码里，只有这篇综述引用了 PhysTwin。
 - **与本项目其他主题的联系**：
-  - **World model**：PhysTwin 可以看成一个显式的、带物理结构的 action-conditioned world model。$f$ 对应 transition，$g_\theta$ 对应 decoder，Eq. 2 是"通过最小化 observation 重建误差来拟合 transition"，这和 [Dreamer](../../01_world_model/dreamer/notes.md) / [DreamerV3](../../01_world_model/dreamerv3/notes.md) 中 RSSM 的训练目标同构；不同的是，PhysTwin 的状态是可解释的质点，只从 1 段视频拟合，而且每个物体要单独构建。与学习式视频 world model（[UniSim](../../05_intersections/unisim/notes.md)、[Ctrl-World](../../05_intersections/ctrl-world/notes.md)、[Cosmos](../../01_world_model/cosmos-wfm/notes.md)）相比，两边的取舍正好相反：后者覆盖面广但不保证物理正确，前者数据效率高、物理一致，但能表达的物体类型受限。[Robotic World Model](../../05_intersections/robotic-world-model/notes.md) 处在神经网络 simulator 这一端；[SimDist](../../05_intersections/simdist/notes.md) 的方向相反，先在仿真里预训练 world model，再到真实世界快速适配。
+  - **World model**：PhysTwin 可以看成一个显式的、带物理结构的 action-conditioned world model。 $f$ 对应 transition， $g_\theta$ 对应 decoder，Eq. 2 是"通过最小化 observation 重建误差来拟合 transition"，这和 [Dreamer](../../01_world_model/dreamer/notes.md) / [DreamerV3](../../01_world_model/dreamerv3/notes.md) 中 RSSM 的训练目标同构；不同的是，PhysTwin 的状态是可解释的质点，只从 1 段视频拟合，而且每个物体要单独构建。与学习式视频 world model（[UniSim](../../05_intersections/unisim/notes.md)、[Ctrl-World](../../05_intersections/ctrl-world/notes.md)、[Cosmos](../../01_world_model/cosmos-wfm/notes.md)）相比，两边的取舍正好相反：后者覆盖面广但不保证物理正确，前者数据效率高、物理一致，但能表达的物体类型受限。[Robotic World Model](../../05_intersections/robotic-world-model/notes.md) 处在神经网络 simulator 这一端；[SimDist](../../05_intersections/simdist/notes.md) 的方向相反，先在仿真里预训练 world model，再到真实世界快速适配。
   - **Real2sim2real**：[RialTo](../rialto/notes.md) 重建的是刚体和铰接物体的几何，PhysTwin 补上的是 physics gap；[SplatSim](../splatsim/notes.md) 同样用 Gaussian splatting，但目的是缩小 visual gap；[ASAP](../asap/notes.md) 不去辨识物理参数，而是用真实数据学一个 delta（residual）action model 来补偿动力学失配（SysID 是它的对比 baseline），PhysTwin 则是显式辨识物理参数、没有残差项；[RMA](../rma/notes.md) 做的是隐式的在线 system identification，PhysTwin 是显式的离线 system identification。附录 D 声称 PhysTwin 可以减少对 [domain randomization](../domain-randomization/notes.md) 的依赖，但没有做实验。[ACDC](../acdc-digital-cousins/notes.md) 主张用一组"cousins"扩大训练分布，与 PhysTwin 精确拟合单个 twin 是两种不同思路；[X-Sim](../x-sim/notes.md) 同样从人类视频做 real-to-sim。
   - **TTT**：构建一个 PhysTwin，就是针对单个物体做一次 per-instance 优化，结构上接近 [TTT-ARC](../../02_test_time_training/ttt-arc-fewshot/notes.md) 的 per-task fine-tune 和 [TTT-Discover](../../02_test_time_training/ttt-discover/notes.md) 讨论的单实例搜索，只是被更新的是物理参数 $\alpha$，不是网络权重。部署时用新观测持续更新 $\alpha$（online system identification）是一个自然的延伸，论文没有做。
   - **RL**：twin 可以直接作为 [PPO](../../04_rl/ppo/notes.md) 或 [SAC](../../04_rl/sac/notes.md) 的训练环境，也可以像 [World-Gymnast](../../05_intersections/world-gymnast/notes.md) 那样"在模型里"做 policy optimization。但本文只展示了定性的 planning。
@@ -132,4 +132,4 @@ $$\mu_j^{t+1}=\sum_{k\in\mathcal N(j)}w_{jk}^t\big(R_k^t(\mu_j^t-\hat\mu_k^t)+\h
 2. $C_{\text{geometry}}$ 为什么用单向 Chamfer distance，而且是"从观测到预测"这个方向？如果改成双向，在部分观测下会出什么问题？
 3. 把 Eq. 2 与 RSSM world model 的训练目标逐项对照：哪些部分对应 transition 和 decoder？PhysTwin 换来的数据效率，是用什么假设换的？
 4. 手的 action 是怎么进入 $f_{\alpha,\mathcal G_0}$ 的？这种建模方式会让哪类操作（例如滑移、松手再抓）仿真失真？
-5. 只在 $t=0$ 优化 Gaussians，渲染后续帧时靠什么让外观跟着形变？$w_{jk}$ 和 $R_i^t$ 分别是怎么算出来的？
+5. 只在 $t=0$ 优化 Gaussians，渲染后续帧时靠什么让外观跟着形变？ $w_{jk}$ 和 $R_i^t$ 分别是怎么算出来的？

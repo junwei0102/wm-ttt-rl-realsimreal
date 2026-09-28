@@ -18,7 +18,7 @@
   2. CarRacing 中 world model 完全看不到 reward（Sec 3.1）。
   3. Doom 中 M 额外预测 done，而回报等于存活步数、可以直接由 done 推出，所以 M 本身就构成一个完整的 RL 环境，不需要 reward model。这是 Doom 能在梦里训练的前提。
 - **之前的方法卡在哪**：
-  1. model-free RL 受 credit assignment 限制，只能训小网络（$10^3$–$10^6$ 参数，脚注 1），大网络的表征能力用不上（Sec 1）。
+  1. model-free RL 受 credit assignment 限制，只能训小网络（ $10^3\text{–}10^6$ 参数，脚注 1），大网络的表征能力用不上（Sec 1）。
   2. PILCO 这类 GP 动力学模型扩展不到高维像素（Sec 6）。
   3. 以往学到的 dynamics model 很少被用来**完全替代**真实环境。作者推测（原文 “could be the reason”）原因可能是 agent 会找到骗过模型的 adversarial policy，确定性 RNN 模型尤其容易被 exploit。Nagabandi 2017 最终仍要靠 model-free 微调（Sec 4.5）。
 
@@ -29,29 +29,29 @@
 **V：ConvVAE**（A.1，结构见 Figure 22）
 - 编码器：4 层 stride-2 的 relu conv，通道数 32/64/128/256，kernel 4。张量尺寸依次为 64×64×3 → 31×31×32 → 14×14×64 → 6×6×128 → 2×2×256。之后接 dense 层输出 $\mu,\sigma\in\mathbb R^{N_z}$，再用 reparameterization 采样 $z=\mu+\sigma\odot\epsilon,\ \epsilon\sim\mathcal N(0,I)$。
 - 解码器：dense 到 1×1×1024，接 4 层 deconv（kernel 5/5/6/6），最后一层用 sigmoid。
-- 维度：$N_z=32$（CarRacing），$N_z=64$（Doom）。
-- 损失：A.1 只用文字写了“$L^2$ 重构 + KL”，下式是按这段描述写出的标准形式：
-$$\mathcal L_V=\lVert x_t-\hat x_t\rVert_2^2+D_{\mathrm{KL}}\!\big(\mathcal N(\mu,\operatorname{diag}\sigma^2)\,\Vert\,\mathcal N(0,I)\big)$$
+- 维度： $N_z=32$（CarRacing）， $N_z=64$（Doom）。
+- 损失：A.1 只用文字写了“ $L^2$ 重构 + KL”，下式是按这段描述写出的标准形式：
+$$\mathcal L_V=\lVert x_t-\hat x_t\rVert_2^2+D_{\mathrm{KL}}\negthinspace\big(\mathcal N(\mu,\operatorname{diag}\sigma^2)\thinspace\Vert\thinspace\mathcal N(0,I)\big)$$
 - 训练：只训 1 epoch。
-- 作者特别指出高斯先验的两个作用：限制每帧压缩的信息量；让 world model 对 M 生成的“不真实”$z$ 更鲁棒（A.1，原文主语是 world model 而不是 V）。
+- 作者特别指出高斯先验的两个作用：限制每帧压缩的信息量；让 world model 对 M 生成的“不真实” $z$ 更鲁棒（A.1，原文主语是 world model 而不是 V）。
 
 **M：MDN-RNN**（Sec 2.2、A.2，Figure 6 与 Figure 23）
 - 主干：LSTM，CarRacing 用 256 个隐藏单元，Doom 用 512 个。
 - 输出层：Mixture Density Network，建模
 $$P(z_{t+1}\mid a_t,z_t,h_t)\quad\text{（Sec 2.2）};\qquad P(z_{t+1},d_{t+1}\mid a_t,z_t,h_t)\quad\text{（Doom，Sec 4.2 步骤 3）}$$
 - 混合形式：5 个高斯分量，不建模相关系数 $\rho$，即对角、因子化的混合高斯（A.2）。论文这句话有歧义。官方代码 `doomrnn/doomrnn.py` 先把输出 reshape 成 `[-1, KMIX*3]`，也就是给 $z$ 的**每一维**单独配一个 5 分量的一维混合：
-$$p(z_{t+1}\mid\cdot)=\prod_{i=1}^{N_z}\sum_{k=1}^{5}\pi_{i,k}\,\mathcal N\!\big(z_{t+1,i};\mu_{i,k},\sigma_{i,k}^2\big),\qquad \mathcal L_M=-\log p(z_{t+1}\mid\cdot)\;\big[+\,\mathrm{BCE}(d_{t+1})\big]$$
+$$p(z_{t+1}\mid\cdot)=\prod_{i=1}^{N_z}\sum_{k=1}^{5}\pi_{i,k}\thinspace\mathcal N\negthinspace\big(z_{t+1,i};\mu_{i,k},\sigma_{i,k}^2\big),\qquad \mathcal L_M=-\log p(z_{t+1}\mid\cdot)\thickspace\big[+\thinspace\mathrm{BCE}(d_{t+1})\big]$$
   代码里 done 这一项用 sigmoid cross-entropy，并对正样本（死亡帧）加权（`restart_factor`）；论文正文没有写这一点。
 - 训练：teacher forcing，20 epochs。每帧预先存好 V 输出的 $(\mu,\sigma)$，每次组 batch 时重新采样 $z\sim\mathcal N(\mu,\sigma)$ 作为输入，防止 M 过拟合到某一个固定的采样值（A.2）。
 - **温度 $\tau$**：论文只说“参照 SketchRNN 调 $\tau$ 来控制不确定性”（Sec 2.2）。官方代码的实现是把混合权重的 logits 除以 $\tau$，高斯噪声乘以 $\sqrt\tau$：
-$$\pi^{(\tau)}_{i,k}\propto\exp(\log\pi_{i,k}/\tau),\qquad z_{t+1,i}=\mu_{i,k^{*}}+\sigma_{i,k^{*}}\sqrt{\tau}\,\epsilon$$
-  $\tau\to0$ 时总是选最大分量、没有噪声，退化成确定性 LSTM；$\tau>1$ 时分量选择和噪声都会变大。
+$$\pi^{(\tau)}_ {i,k}\propto\exp(\log\pi_{i,k}/\tau),\qquad z_{t+1,i}=\mu_{i,k^{\ast}}+\sigma_{i,k^{\ast}}\sqrt{\tau}\thinspace\epsilon$$
+  $\tau\to0$ 时总是选最大分量、没有噪声，退化成确定性 LSTM； $\tau>1$ 时分量选择和噪声都会变大。
 - **梦境中的 done**：预测概率 >50% 就判定死亡，而不是按 Bernoulli 采样。理由是死亡属于低概率事件，用阈值判定更稳定（A.2）。
 
 **C：线性控制器**（Eq. 1，`source/main.tex` Sec 2.3）
-$$a_t=W_c\,[z_t\;h_t]+b_c$$
+$$a_t=W_c\thinspace[z_t\thickspace h_t]+b_c$$
 - 输出外套一层 tanh，裁到动作范围内（A.3）。
-- CarRacing：$h$ 取 LSTM 的输出向量（256 维），参数量 $(32+256)\times3+3=867$。
+- CarRacing： $h$ 取 LSTM 的输出向量（256 维），参数量 $(32+256)\times3+3=867$。
 - Doom：输入是 $z(64)+c(512)+h(512)=1088$ 维（A.3：Doom 中隐状态取 LSTM 的 cell 向量 $c$ 和输出向量 $h$），输出 1 维且不带 bias（Sec 4.2 步骤 4），参数量为 1,088。
 - 这两个数都和论文中未编号的参数表一致（算式是我按论文给的维度推出来的）。完整参数表：
   - CarRacing：VAE 4,348,547 / MDN-RNN 422,368 / C 867
@@ -98,7 +98,7 @@ $$a_t=W_c\,[z_t\;h_t]+b_c$$
 | A3C（连续动作） | 591 ± 45 |
 | A3C（离散动作） | 652 ± 10 |
 | Gym leaderboard 最佳（ceobillionaire） | 838 ± 11 |
-| 只用 V（$a_t=W_cz_t+b_c$） | 632 ± 251 |
+| 只用 V（ $a_t=W_cz_t+b_c$） | 632 ± 251 |
 | 只用 V + 40 个 tanh 单元的隐藏层（C 共 1443 参数，A.4） | 788 ± 141 |
 | **Full World Model（V+M）** | **906 ± 21** |
 
@@ -120,9 +120,9 @@ $$a_t=W_c\,[z_t\;h_t]+b_c$$
 
 - **低 $\tau$ 下 C exploit 了模型**：梦境分数接近满分上限 2100，真实分数反而低于随机策略。机制是 $\tau=0.1$ 时 M 接近确定性 LSTM，因为 mode collapse 无法“跳”到“发射火球”那个混合分量，于是梦里的怪物永远不开火（Sec 4.5）。
   - 早期实验中，agent 甚至学会用特定的走位让已经发射的火球“自动熄灭”（Figure 18）。
-- **$\tau$ 的取舍**：$\tau=1.15$ 效果最好。$\tau=1.30$ 的均值更低，但方差小得多，对应一种更保守的策略（Sec 4.5）。
-- **真实分数高于梦境分数**（$\tau$=1.15、1.30 两行）：作者的解释是，能在更嘈杂的梦里活下来的 agent，到了更“干净”的真实环境会表现得更好（Sec 4.4）。
-- **A.5 补充**：在 DoomRNN（$\tau=1.15$）中，最佳个体在梦境 1024 局上平均得分 959；同一个 agent 在真实 `DoomTakeCover-v0` 上 100 局得分 1092 ± 556（Figure 29）。注意 959 与 Table 2 中 $\tau=1.15$ 的梦境分数 918 ± 546 并不相同（Sec 4.3 又只写“约 900”），论文没有解释两者的差别。作者明确说明**没有**在真实 VizDoom 中训练 agent，VizDoom 只用来采随机策略的训练数据，因此也就没有“真实环境训练”的对照。
+- **$\tau$ 的取舍**： $\tau=1.15$ 效果最好。 $\tau=1.30$ 的均值更低，但方差小得多，对应一种更保守的策略（Sec 4.5）。
+- **真实分数高于梦境分数**（ $\tau$=1.15、1.30 两行）：作者的解释是，能在更嘈杂的梦里活下来的 agent，到了更“干净”的真实环境会表现得更好（Sec 4.4）。
+- **A.5 补充**：在 DoomRNN（ $\tau=1.15$）中，最佳个体在梦境 1024 局上平均得分 959；同一个 agent 在真实 `DoomTakeCover-v0` 上 100 局得分 1092 ± 556（Figure 29）。注意 959 与 Table 2 中 $\tau=1.15$ 的梦境分数 918 ± 546 并不相同（Sec 4.3 又只写“约 900”），论文没有解释两者的差别。作者明确说明**没有**在真实 VizDoom 中训练 agent，VizDoom 只用来采随机策略的训练数据，因此也就没有“真实环境训练”的对照。
 - **为什么用混合高斯而不是单高斯**（Sec 4.5）：“怪物开不开火”这类离散随机事件需要多模态分布来表达。单个对角高斯足够编码单帧，但表达不了环境逻辑。
 
 ## 局限与论文没说的
@@ -195,9 +195,9 @@ $$a_t=W_c\,[z_t\;h_t]+b_c$$
   - 依赖版本：Python 3.5.4、TF 1.8.0、gym 0.9.4、cma 2.2.0。
 - **数据与环境**：`CarRacing-v0`（依赖 Box2D）和 `DoomTakeCover-v0`（依赖 VizDoom 及其 gym 封装）。10,000 条随机 rollout 需要自己采集。
 - **最小可复现实验**：选 DoomTakeCover 的梦境训练加温度扫描。这个实验直接对应论文的核心主张（在梦中训练，用 $\tau$ 抑制 exploit），而且训练 C 时不用跑游戏引擎，CPU 预算可控。
-  1. 用随机策略采 10,000 局，训练 VAE（$N_z=64$，1 epoch），再训练 MDN-RNN（512 个单元，5 个分量，20 epochs，同时预测 done）。
+  1. 用随机策略采 10,000 局，训练 VAE（ $N_z=64$，1 epoch），再训练 MDN-RNN（512 个单元，5 个分量，20 epochs，同时预测 done）。
   2. 在 DoomRNN 中分别用 $\tau=0.5$ 和 $\tau=1.15$ 跑 CMA-ES（population 64 × 每候选 16 局），代数可以先减少。
-  3. 在真实环境中各跑 100 局评估，检查两点：低 $\tau$ 是否出现“梦中接近 2100，现实约 200（随机水平）”；$\tau=1.15$ 是否越过 750 的 solved 线。
+  3. 在真实环境中各跑 100 局评估，检查两点：低 $\tau$ 是否出现“梦中接近 2100，现实约 200（随机水平）”； $\tau=1.15$ 是否越过 750 的 solved 线。
   
   如果还想做 CarRacing，建议只复现 V-only 对比 V+M 的消融（Table 1），减少代数，只看趋势。
 - **难点**：
@@ -209,7 +209,7 @@ $$a_t=W_c\,[z_t\;h_t]+b_c$$
 ## 自测问题
 
 1. CarRacing 中 C 的参数量为什么恰好是 867，Doom 中为什么是 1,088？由此能推断 C 的输入各包含哪些向量？
-2. 只看 $z$ 的 C 加了 40 个单元的隐藏层（1443 参数）后，为什么仍然比不过看 $[z,h]$ 的线性 C（867 参数）？$h_t$ 里存了什么信息，为什么不需要显式 planning？
-3. 用 MDN 的温度采样公式和 mode collapse 解释：为什么 $\tau=0.1$ 时梦境分数接近满分，真实分数却低于随机策略？$\tau$ 调到 1.30 为什么又会降分？
+2. 只看 $z$ 的 C 加了 40 个单元的隐藏层（1443 参数）后，为什么仍然比不过看 $[z,h]$ 的线性 C（867 参数）？ $h_t$ 里存了什么信息，为什么不需要显式 planning？
+3. 用 MDN 的温度采样公式和 mode collapse 解释：为什么 $\tau=0.1$ 时梦境分数接近满分，真实分数却低于随机策略？ $\tau$ 调到 1.30 为什么又会降分？
 4. 为什么 Doom 可以全程在梦里训练，而 CarRacing 论文没有这样做？如果要在 CarRacing 的梦境里训练 C，M 还需要额外输出什么？
 5. 训练 M 时为什么每次组 batch 都要从 $\mathcal N(\mu,\sigma)$ 重新采样 $z$，而不是用固定的 $z$？这与 A.1 所说“高斯先验让 world model 对 M 生成的不真实 $z$ 更鲁棒”有什么关系？

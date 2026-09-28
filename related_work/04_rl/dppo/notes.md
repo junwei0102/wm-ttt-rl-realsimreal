@@ -20,37 +20,39 @@ DPPO 把 Diffusion Policy 的每一步去噪看作内层 MDP 的一步动作，�
 
 **(1) 背景：DDPM 与 DP。** 反向过程见 Eq. (3.3)（`source/body/formulation.tex`）：
 $$x^{k-1}\sim p_\theta(x^{k-1}\mid x^k)=\mathcal N\big(x^{k-1};\mu_k(x^k,\epsilon_\theta(x^k,k)),\sigma_k^2 I\big).$$
-这里 $\mu_k$ 是与 $\theta$ 无关的固定函数，$\sigma_k$ 由 schedule 固定。预训练用标准的 $\epsilon$-prediction BC loss，Eq. (A1)：$\mathcal L_{BC}(\theta)=\mathbb E^{(s_t,a_t^0)\sim\mathcal D_{\text{off}}}\|\epsilon_t-\epsilon_\theta(a^0_t,s_t,k)\|^2$（原文记号如此；按文字说明，网络实际输入的是对 $a_t^0$ 加噪后的动作），采用 cosine schedule。
+这里 $\mu_k$ 是与 $\theta$ 无关的固定函数， $\sigma_k$ 由 schedule 固定。预训练用标准的 $\epsilon$-prediction BC loss，Eq. (A1)： $\mathcal L_{BC}(\theta)=\mathbb E^{(s_t,a_t^0)\sim\mathcal D_{\text{off}}}\Vert\epsilon_t-\epsilon_\theta(a^0_t,s_t,k)\Vert^2$（原文记号如此；按文字说明，网络实际输入的是对 $a_t^0$ 加噪后的动作），采用 cosine schedule。
 
 **(2) 两层 MDP**（`source/body/approach.tex` §4.1，PDF Fig. 3）。定义索引 $\bar t(t,k)=tK+(K-k-1)$，它随环境步 $t$ 递增，随去噪步 $k$ 递减：
-$$\bar s_{\bar t(t,k)}=(s_t,a_t^{k+1}),\quad \bar a_{\bar t(t,k)}=a_t^k,\quad \bar R_{\bar t(t,k)}=\begin{cases}0,&k>0\\R(s_t,a_t^0),&k=0\end{cases}$$
+
+$$\bar s_{\bar t(t,k)}=(s_t,a_t^{k+1}),\quad \bar a_{\bar t(t,k)}=a_t^k,\quad \bar R_{\bar t(t,k)}=\begin{cases}0,&k>0\cr R(s_t,a_t^0),&k=0\end{cases}$$
+
 - 转移：当 $k>0$ 时，转移是确定性的，把刚去噪得到的 $a_t^k$ 放进下一个状态 $(s_t,a_t^k)$。当 $k=0$ 时，环境执行 $a_t^0$，转到 $s_{t+1}\sim P$，同时重新采样 $a_{t+1}^K\sim\mathcal N(0,I)$。**纯噪声 $a^K$ 算作环境的一部分**，所以它不进入似然。初始分布为 $\bar P^0=P_0\otimes\mathcal N(0,I)$。
 - 策略就是单步去噪，Eq. (4.1)：
 $$\bar\pi_\theta(\bar a_{\bar t}\mid\bar s_{\bar t})=\mathcal N\big(a_t^k;\ \mu(a_t^{k+1},\epsilon_\theta(a_t^{k+1},k{+}1,s_t)),\ \sigma_{k+1}^2 I\big).$$
-  展开后 $\log\bar\pi_\theta=-\|a_t^k-\mu_\theta\|^2/(2\sigma_{k+1}^2)+\text{const}$，可以直接求梯度，不需要边缘似然。
-- 在 $\mathcal M_{DP}$ 上套标准 PG，Eq. (4.2)：$\nabla_\theta\bar{\mathcal J}=\mathbb E\big[\sum_{\bar t}\nabla_\theta\log\bar\pi_\theta(\bar a_{\bar t}\mid\bar s_{\bar t})\,\bar r(\bar s_{\bar t},\bar a_{\bar t})\big]$。
+  展开后 $\log\bar\pi_\theta=-\Vert a_t^k-\mu_\theta\Vert^2/(2\sigma_{k+1}^2)+\text{const}$，可以直接求梯度，不需要边缘似然。
+- 在 $\mathcal M_{DP}$ 上套标准 PG，Eq. (4.2)： $\nabla_\theta\bar{\mathcal J}=\mathbb E\big[\sum_{\bar t}\nabla_\theta\log\bar\pi_\theta(\bar a_{\bar t}\mid\bar s_{\bar t})\thinspace\bar r(\bar s_{\bar t},\bar a_{\bar t})\big]$。
 - 与 QSM 推导的区别（`source/body/extended_related.tex`）：QSM 先在去噪步上求和，再对环境步取期望；DPPO 把去噪步也当成 MDP 的时间步，对两者一起取期望。
 
 **(3) PPO 实例化**（§4.2 + App. B）。
-- 用 clipped surrogate，Eq. (A3)：$\mathcal L_\theta=\mathbb E\min\big(\hat A\,\rho,\ \hat A\,\mathrm{clip}(\rho,1-\epsilon,1+\epsilon)\big)$，其中 $\rho=\bar\pi_\theta/\bar\pi_{\theta_{old}}$，按单个去噪步计算。
+- 用 clipped surrogate，Eq. (A3)： $\mathcal L_\theta=\mathbb E\min\big(\hat A\thinspace\rho,\ \hat A\thinspace\mathrm{clip}(\rho,1-\epsilon,1+\epsilon)\big)$，其中 $\rho=\bar\pi_\theta/\bar\pi_{\theta_{old}}$，按单个去噪步计算。
 - **两层折扣的 advantage**（§4.2，未编号式）：
-$$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k}\big(\bar r(\bar s_{\bar t},\bar a_{\bar t})-\tilde V(s_t)\big),\qquad \bar r=\textstyle\sum_{t'\ge t}\gamma_{\text{env}}^{\,t'-t}R(s_{t'},a^0_{t'}).$$
-  原文里指数写的是 $\gamma_{\text{env}}^t$，按上下文应为 $t'-t$。因为 $k>0$ 时奖励为 0，只需要在 $k=0$（也就是环境步）上用 GAE 算 advantage，Eq. (A2)，$\lambda=0.95$。算出来的 advantage 乘上 $\gamma_{\text{denoise}}^k$ 就能用于每一个去噪步。$\gamma_{\text{denoise}}<1$ 会调低噪声较大的早期去噪步在梯度里的权重。
-- **critic 只看环境状态**：$\hat V(\bar s)=\tilde V(s_t)$，不看 $a_t^{1}$。训练目标是 MC 回报的 MSE，Eq. (A4)。
-- 训练流程见 Alg. 1：$N$ 个并行环境 rollout，把每个去噪步的 $(k,\bar s,\bar a,\bar R)$ 都存进 buffer → 在环境步上算 GAE → 做 $N_\theta$ 轮 minibatch 更新，actor 和 critic 同步训练，$N_\theta=N_\phi$。因为 batch 里同时包含环境步和去噪步，batch size 大约取成 Gaussian PPO 的 batch 乘以 $K'$（App. B）。
+$$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\thinspace k}\big(\bar r(\bar s_{\bar t},\bar a_{\bar t})-\tilde V(s_t)\big),\qquad \bar r=\textstyle\sum_{t'\ge t}\gamma_{\text{env}}^{\thinspace t'-t}R(s_{t'},a^0_{t'}).$$
+  原文里指数写的是 $\gamma_{\text{env}}^t$，按上下文应为 $t'-t$。因为 $k>0$ 时奖励为 0，只需要在 $k=0$（也就是环境步）上用 GAE 算 advantage，Eq. (A2)， $\lambda=0.95$。算出来的 advantage 乘上 $\gamma_{\text{denoise}}^k$ 就能用于每一个去噪步。 $\gamma_{\text{denoise}}<1$ 会调低噪声较大的早期去噪步在梯度里的权重。
+- **critic 只看环境状态**： $\hat V(\bar s)=\tilde V(s_t)$，不看 $a_t^{1}$。训练目标是 MC 回报的 MSE，Eq. (A4)。
+- 训练流程见 Alg. 1： $N$ 个并行环境 rollout，把每个去噪步的 $(k,\bar s,\bar a,\bar R)$ 都存进 buffer → 在环境步上算 GAE → 做 $N_\theta$ 轮 minibatch 更新，actor 和 critic 同步训练， $N_\theta=N_\phi$。因为 batch 里同时包含环境步和去噪步，batch size 大约取成 Gaussian PPO 的 batch 乘以 $K'$（App. B）。
 
 **(4) Best practices**（§4.3，App. B）。
 - **只微调最后 $K'$ 步去噪**：把参数复制一份得到 $\theta_{FT}$，只用于并更新最后 $K'$ 步，前面的步用冻结的 $\theta$。GPU 显存随 $K'$ 线性增长（App. C.2）。
 - **微调 DDIM**，Eq. (4.3)：方差项变成 $\eta\sigma_k^2$。训练时取 $\eta=1$（等价于 DDPM，提供探索噪声，也避免对 Dirac 分布求似然），评估时取 $\eta=0$。像素任务和 Furniture 任务用 $K=100$ 预训练、5 步 DDIM 微调。
-- **两个 noise clip**：采样时把 $\sigma_k$ 下限截到 $\sigma^{\text{exp}}_{\min}$（论文建议 0.01–0.1，实际用 0.1/0.08/0.04），用来保证探索；计算似然时下限截到 $\sigma^{\text{prob}}_{\min}=0.1$，避免 $1/\sigma^2$ 把 log-prob 放得太大。评估时 $\sigma^{\text{exp}}_{\min}=0.001$。
-- **PPO clip 的 $\epsilon$**：在 $\{0.1,0.01,0.001\}$ 中取满足 clipping fraction 为 10%–20% 的最大值。另外设 $\epsilon_{k=K-1}=0.1\,\epsilon_{k=0}$，中间各步按指数插值。原文说"早期去噪步用更大的 $\epsilon$"，但式子给出的是更小的值，**文字和公式互相矛盾**。
+- **两个 noise clip**：采样时把 $\sigma_k$ 下限截到 $\sigma^{\text{exp}}_ {\min}$（论文建议 0.01–0.1，实际用 0.1/0.08/0.04），用来保证探索；计算似然时下限截到 $\sigma^{\text{prob}}_ {\min}=0.1$，避免 $1/\sigma^2$ 把 log-prob 放得太大。评估时 $\sigma^{\text{exp}}_ {\min}=0.001$。
+- **PPO clip 的 $\epsilon$**：在 $\lbrace0.1,0.01,0.001\rbrace$ 中取满足 clipping fraction 为 10%–20% 的最大值。另外设 $\epsilon_{k=K-1}=0.1\thinspace\epsilon_{k=0}$，中间各步按指数插值。原文说"早期去噪步用更大的 $\epsilon$"，但式子给出的是更小的值，**文字和公式互相矛盾**。
 - **网络结构**：MLP 微调更稳。UNet 只对 $a^k$ 做卷积，所以可以预训练时 $T_p=16$、微调时 $T_a=8$。
 
 ## 关键实验与证据
 
-**任务**（§5 + Table A6）：Gym {Hopper, Walker2D, HalfCheetah}，用 D4RL medium 预训练，$T_a=4$，dense reward；Franka-Kitchen 三个数据集；Robomimic {Lift, Can, Square, Transport}，state 用 300 条 MH 示范预训练，pixel 用 100 条；Furniture-Bench {One-leg, Lamp, Round-table} × {Low, Med}，用 50 条仿真示范、$T_a=8$；D3IL Avoid 用于机制分析。
+**任务**（§5 + Table A6）：Gym {Hopper, Walker2D, HalfCheetah}，用 D4RL medium 预训练， $T_a=4$，dense reward；Franka-Kitchen 三个数据集；Robomimic {Lift, Can, Square, Transport}，state 用 300 条 MH 示范预训练，pixel 用 100 条；Furniture-Bench {One-leg, Lamp, Round-table} × {Low, Med}，用 50 条仿真示范、 $T_a=8$；D3IL Avoid 用于机制分析。
 
-- **对比其他 diffusion RL 方法**（Fig. 5；超参数见 Table A7：$K=20$，$K'=10$，$\gamma_{\text{denoise}}=0.99$，$\epsilon=0.01$）：
+- **对比其他 diffusion RL 方法**（Fig. 5；超参数见 Table A7： $K=20$， $K'=10$， $\gamma_{\text{denoise}}=0.99$， $\epsilon=0.01$）：
   - Gym 上 IDQL 和 DIPO 与 DPPO 接近，其余方法更差、训练也更不稳。
   - Robomimic 上 DPPO 最强。IDQL 和作者自己做的 DRWR 在 Lift/Can/Square 上是强基线，但在 Transport 上失败。
   - Q-learning 类基线在微调初期普遍掉点。
@@ -72,7 +74,7 @@ $$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k
     | 预训练 Gaussian | 0.45 | 0.3 |
     | DPPO 微调后 | 0.87 | **0.8（16/20）** |
     | Gaussian 微调后 | 0.88 | **0.0** |
-    | Gaussian + BC 正则（$\alpha_{BC}=0.1$） | 0.53 | 0.5 |
+    | Gaussian + BC 正则（ $\alpha_{BC}=0.1$） | 0.53 | 0.5 |
 
     仿真训练中做了 domain randomization：观测噪声按真机静止时测到的范围设定；动作上加 std=0.03 的噪声，模拟不理想的底层控制器（App. E.8）。
 - **机制分析**（§6，D3IL Avoid，Fig. 10–13）：
@@ -82,15 +84,15 @@ $$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k
   - 微调过程中多步逐渐细化的结构保留了下来，没有塌到某一步。
   - 微调后的策略对动作扰动更鲁棒，并且能从更大范围的初始状态收敛到（近）最优路径（Fig. 13）。
 - **消融**（App. C.2，Fig. A2–A5）：
-  1. advantage 估计：在较难的任务上，$\tilde V(s_t)$ 优于 $V(s_t,a^1_t)$ 和 $Q(s_t,a^0_t)$；只有在简单的 Hopper 上，依赖动作的估计更好。
-  2. $\gamma_{\text{denoise}}\in\{0.5,0.8,0.9,1\}$：Hopper/Cheetah 上 0.8 最好；操作任务对这个值不敏感。
-  3. $\sigma^{\text{exp}}_{\min}\in\{0.001,0.01,0.1,0.2\}$：Can 上不敏感；Square 上要取到 0.1 才不崩（Fig. A4 中 0.1 和 0.2 都能训练，0.001/0.01 崩溃）。
+  1. advantage 估计：在较难的任务上， $\tilde V(s_t)$ 优于 $V(s_t,a^1_t)$ 和 $Q(s_t,a^0_t)$；只有在简单的 Hopper 上，依赖动作的估计更好。
+  2. $\gamma_{\text{denoise}}\in\lbrace0.5,0.8,0.9,1\rbrace$：Hopper/Cheetah 上 0.8 最好；操作任务对这个值不敏感。
+  3. $\sigma^{\text{exp}}_ {\min}\in\lbrace0.001,0.01,0.1,0.2\rbrace$：Can 上不敏感；Square 上要取到 0.1 才不崩（Fig. A4 中 0.1 和 0.2 都能训练，0.001/0.01 崩溃）。
   4. $K'$：取 3 太少，取 10 的整体效率最好。
 - **其他补充实验**：
   - 只在最后一步加噪（去掉结构化探索）：在 Can/Square 上收敛更慢（Fig. A11）。
   - 用 probability-flow ODE 计算精确似然再做单层 PG：Hopper 上有提升但不如 DPPO，Can 上降到 0（Fig. A10）。
   - One-leg 只用 10 条示范，DPPO 能到 60%（Fig. A6）。
-  - 从零训练（$T_a=1$）：Gaussian 学得更快；DPPO 最终性能也合理，但墙钟时间约为 6 倍（Fig. A7）。
+  - 从零训练（ $T_a=1$）：Gaussian 学得更快；DPPO 最终性能也合理，但墙钟时间约为 6 倍（Fig. A7）。
 - **墙钟时间**（App. D）：state 输入下，DPPO-MLP 比 Gaussian/GMM 慢 21%–24%，UNet 版再慢 49%；pixel 输入下慢 14%；Furniture 上慢 20%。
 
 ## 局限与论文没说的
@@ -109,7 +111,7 @@ $$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k
   - 两处实验里 DPPO 的 batch 差 10 倍：Lift/Can 上 Table A7 是 7.5k、Table A9 是 75k（Square/Transport 是 10k 对 100k）。App. B 的解释是 batch 一般取 Gaussian batch × 微调步数，但在 Robomimic 上更小的 batch（接近 Gaussian 的）也能用，而且样本效率明显更高。
   - Robomimic 上 demo-augmented 基线（RLPD/Cal-QL/IBRL）被限制在 1e6 样本；Fig. 6 里 DPPO 也只画到 1e6，但 DPPO 在其他实验里的横轴远超这个数。
   - 结果全是 3–5 个 seed 的曲线，没有给出最终数字的表格。
-- **信用分配很粗**：同一环境步的 $K'$ 个去噪步共用一个 advantage，只按 $\gamma_{\text{denoise}}^k$ 缩放；形式上 $\mathcal M_{DP}$ 的长度是环境 MDP 的 $K$ 倍（$\bar t=tK+(K-k-1)$）。[RL 综述](../survey-rl-overview/notes.md) 也指出这会得到很长 horizon 的问题，并介绍了后续工作 NCDPO（`../survey-rl-overview/source/policy-rl.tex`）。
+- **信用分配很粗**：同一环境步的 $K'$ 个去噪步共用一个 advantage，只按 $\gamma_{\text{denoise}}^k$ 缩放；形式上 $\mathcal M_{DP}$ 的长度是环境 MDP 的 $K$ 倍（ $\bar t=tK+(K-k-1)$）。[RL 综述](../survey-rl-overview/notes.md) 也指出这会得到很长 horizon 的问题，并介绍了后续工作 NCDPO（`../survey-rl-overview/source/policy-rl.tex`）。
 - **规模和观测设置**：模型最大约 10.6M 参数（Furniture 上的 Gaussian-MLP；DPPO-UNet 为 6.86M，Table A9–A11），没有在 VLA 或多任务大模型上验证。Kitchen、Robomimic、Furniture 的预训练都明确不用历史观测（App. E.5/E.6/E.8）。
 - **缺少约束**：微调时没有 KL 或 BC 正则项（只有 PPO clip，外加 KL 达到 1 时提前结束本轮更新的保护，作者说实际从未触发，App. B），reward hacking 和"偏离示范后行为是否仍然自然"都没有系统讨论（作者只在 App. A.1 称 on-manifold 探索让微调后的行为保持自然）。
 
@@ -135,8 +137,8 @@ $$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k
 ## 前置知识
 
 1. Policy gradient 与 likelihood-ratio 估计，[PPO](../ppo/notes.md) 的 clip 目标，GAE。
-2. DDPM：前向加噪、$\epsilon$-prediction、反向高斯、noise schedule；DDIM 及其 $\eta$。
-3. Diffusion Policy 与 action chunking（$T_p$ 与 $T_a$）。
+2. DDPM：前向加噪、 $\epsilon$-prediction、反向高斯、noise schedule；DDIM 及其 $\eta$。
+3. Diffusion Policy 与 action chunking（ $T_p$ 与 $T_a$）。
 4. BC 预训练 + RL 微调范式；Q-learning 类 diffusion RL（DQL/IDQL/QSM）作为对照。
 5. Sim-to-real 与 domain randomization（理解 Furniture 实验需要）。
 
@@ -158,8 +160,8 @@ $$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k
   - Transport-state（Fig. 5 横轴；Fig. 7 的横轴到 4e7，时长约翻倍）：约 2e7 ÷ 1.6e5 ≈ 125 轮，约 12 小时。
   - One-leg（Fig. 8 横轴）：约 7e8 ÷ 7e5 ≈ 1000 轮，约 41 小时。
 - **最小复现实验**：Robomimic **Can（state，MH）**。
-  1. 加载官方预训练 DP（$K=20$），用 DPPO 微调最后 $K'=10$ 步，超参数取 Table A7/A9。对照组是 Gaussian-MLP + PPO。跑 3 个 seed，目标是复现 Fig. 5/A9 中接近 100% 的趋势。
-  2. 在同一套设置上做两个消融：critic 用 $\tilde V(s)$ 还是 $V(s,a^1)$（Fig. A2）；在 Square 上比较 $\sigma^{\text{exp}}_{\min}=0.01$ 和 0.1，预期 0.01 会崩（Fig. A4）。
+  1. 加载官方预训练 DP（ $K=20$），用 DPPO 微调最后 $K'=10$ 步，超参数取 Table A7/A9。对照组是 Gaussian-MLP + PPO。跑 3 个 seed，目标是复现 Fig. 5/A9 中接近 100% 的趋势。
+  2. 在同一套设置上做两个消融：critic 用 $\tilde V(s)$ 还是 $V(s,a^1)$（Fig. A2）；在 Square 上比较 $\sigma^{\text{exp}}_ {\min}=0.01$ 和 0.1，预期 0.01 会崩（Fig. A4）。
   3. 可选：D3IL Avoid M2，可视化结构化探索（Fig. 10），很便宜。
 - **预计难点**：
   - mujoco-py 和 D4RL 环境的安装。
@@ -170,8 +172,8 @@ $$\hat A(\bar s_{\bar t(t,k)},\bar a_{\bar t(t,k)})=\gamma_{\text{denoise}}^{\,k
 
 ## 自测问题
 
-1. 写出 $\bar t(t,k)$、$\bar s$、$\bar a$、$\bar R$ 以及 $k>0$ 和 $k=0$ 两种情况的转移。为什么要把 $a_t^K\sim\mathcal N(0,I)$ 算作环境的一部分？如果把它算进策略，PPO 的 ratio 会有什么问题？
+1. 写出 $\bar t(t,k)$、 $\bar s$、 $\bar a$、 $\bar R$ 以及 $k>0$ 和 $k=0$ 两种情况的转移。为什么要把 $a_t^K\sim\mathcal N(0,I)$ 算作环境的一部分？如果把它算进策略，PPO 的 ratio 会有什么问题？
 2. 为什么 DPPO 只需要在 $k=0$ 上做 GAE，再乘以 $\gamma_{\text{denoise}}^k$？critic 为什么不看 $a_t^{1}$？结合 Fig. A2 说明它在什么任务上反而吃亏。
-3. $\sigma^{\text{exp}}_{\min}$ 和 $\sigma^{\text{prob}}_{\min}$ 分别作用在采样还是似然计算上？如果沿用标准 cosine schedule，让 $\sigma_k$ 在 $k=0$ 降到约 1e-4，$\nabla\log\bar\pi$ 和 PPO ratio 会怎样？
-4. DPPO 与 QSM 的 PG 推导、与"用 probability-flow ODE 算精确似然的单层 PG"分别有什么不同？$K'$ 和 $\gamma_{\text{denoise}}$ 为什么可以看成同一个旋钮的硬版本和软版本？
+3. $\sigma^{\text{exp}}_ {\min}$ 和 $\sigma^{\text{prob}}_ {\min}$ 分别作用在采样还是似然计算上？如果沿用标准 cosine schedule，让 $\sigma_k$ 在 $k=0$ 降到约 1e-4， $\nabla\log\bar\pi$ 和 PPO ratio 会怎样？
+4. DPPO 与 QSM 的 PG 推导、与"用 probability-flow ODE 算精确似然的单层 PG"分别有什么不同？ $K'$ 和 $\gamma_{\text{denoise}}$ 为什么可以看成同一个旋钮的硬版本和软版本？
 5. "结构化、on-manifold 探索"的机制是什么？为什么从零训练时它不占优，在 Lamp Low 上甚至略差？One-leg 上 Gaussian 仿真 88%、真机 0% 的结果，有哪些因素不能归到参数化上？

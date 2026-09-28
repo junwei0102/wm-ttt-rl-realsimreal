@@ -9,7 +9,7 @@
 
 ## 问题设定
 
-- **任务**：图像分类。训练集 $\{(x_i,y_i)\}_{i=1}^n \overset{iid}{\sim} P$，测试样本来自未知的 $Q\neq P$。测试时只拿得到 $x$，拿不到 $y$。
+- **任务**：图像分类。训练集 $\lbrace(x_i,y_i)\rbrace_{i=1}^n \overset{iid}{\sim} P$，测试样本来自未知的 $Q\neq P$。测试时只拿得到 $x$，拿不到 $y$。
 - **假设**：训练阶段看不到任何目标分布的数据，这一点和 unsupervised domain adaptation（UDA）不同；也不预先假设 shift 属于哪一类，这一点和 adversarial robustness 预设扰动集 $\Delta$ 不同。online 版本多一个假设：测试流 $x_1,x_2,\dots$ 来自同一个 $Q$，或者来自缓慢变化的 $Q_t$（`source/tex/intro.tex`、`results.tex` "Gradually changing"）。
 - **之前的方法卡在哪**（`source/tex/related.tex`）：
   1. adversarial training、randomized smoothing 等都在"平滑"一个固定的 decision boundary，属于 one-boundary-fits-all，天然存在 accuracy 与 robustness 的 tradeoff，而且依赖 $\Delta$ 的数学结构。
@@ -19,7 +19,7 @@
 
 ## 核心方法
 
-**1. Y 形结构。** 把 $K$ 层网络切在第 $\kappa$ 层：前面的 $\boldsymbol\theta_e=(\theta_1,\dots,\theta_\kappa)$ 是 shared feature extractor；后面分成两支，一支是 main task branch $\boldsymbol\theta_m$，另一支是 self-supervised task branch $\boldsymbol\theta_s$。$\boldsymbol\theta_s$ 与 $\boldsymbol\theta_m$ 结构相同，只有最后一层的输出维度不同。自监督任务是 rotation prediction：把图像旋转 0/90/180/270°，做 4 分类（`source/tex/method.tex`）。CIFAR 上用 ResNet-26（共 3 个 group），切在第 2 个 group 末尾；ImageNet 上用 ResNet-18（共 4 个 group），切在第 3 个 group 末尾（`results.tex` "Network details"）。
+**1. Y 形结构。** 把 $K$ 层网络切在第 $\kappa$ 层：前面的 $\boldsymbol\theta_e=(\theta_1,\dots,\theta_\kappa)$ 是 shared feature extractor；后面分成两支，一支是 main task branch $\boldsymbol\theta_m$，另一支是 self-supervised task branch $\boldsymbol\theta_s$。 $\boldsymbol\theta_s$ 与 $\boldsymbol\theta_m$ 结构相同，只有最后一层的输出维度不同。自监督任务是 rotation prediction：把图像旋转 0/90/180/270°，做 4 分类（`source/tex/method.tex`）。CIFAR 上用 ResNet-26（共 3 个 group），切在第 2 个 group 末尾；ImageNet 上用 ResNet-18（共 4 个 group），切在第 3 个 group 末尾（`results.tex` "Network details"）。
 
 **2. 训练：multi-task joint training**（`source/tex/method.tex` Eq.2）
 
@@ -42,19 +42,19 @@ $$\min_{\boldsymbol\theta_e}\ l_s(x;\boldsymbol\theta_s,\boldsymbol\theta_e)$$
 
 **5. 为什么用 GN 不用 BN。** 一个 batch 里全是同一张图的副本，BN 估出的统计量不准，所以主结果都用 Group Normalization（`results.tex`；GN 不依赖 batch size）。BN 的结果见附录 A4.1：standard 版只对 $l_s$ 大的样本做更新（hard example mining），仍然有效；online 版在 BN 下不可用，因为统计量误差会在上万步里不断累积。
 
-**6. 理论：gradient correlation**（`source/tex/theory.tex` Eq.4–9，证明在 `source/tex/proofs.tex` 附录 A3）。先看 toy model，一个两层线性网络。$\mathbf A\in\mathbb R^{h\times d}$ 是共享层，$\mathbf v$ 和 $\mathbf w$ 是两个 head。记 $r_1=y_1-\mathbf v^\top\mathbf A x$，$r_2=y_2-\mathbf w^\top\mathbf A x$，则 $l_m=\tfrac12 r_1^2$，$l_s=\tfrac12 r_2^2$。
+**6. 理论：gradient correlation**（`source/tex/theory.tex` Eq.4–9，证明在 `source/tex/proofs.tex` 附录 A3）。先看 toy model，一个两层线性网络。 $\mathbf A\in\mathbb R^{h\times d}$ 是共享层， $\mathbf v$ 和 $\mathbf w$ 是两个 head。记 $r_1=y_1-\mathbf v^\top\mathbf A x$， $r_2=y_2-\mathbf w^\top\mathbf A x$，则 $l_m=\tfrac12 r_1^2$， $l_s=\tfrac12 r_2^2$。
 
-- 在 $l_s$ 上走一步（Eq.6）：$\mathbf A'=\mathbf A+\eta\, r_2\,\mathbf w x^\top$，于是 $\mathbf v^\top\mathbf A'x=\mathbf v^\top\mathbf A x+\eta\, r_2\,(\mathbf v^\top\mathbf w)(x^\top x)$。
+- 在 $l_s$ 上走一步（Eq.6）： $\mathbf A'=\mathbf A+\eta\thinspace r_2\thinspace\mathbf w x^\top$，于是 $\mathbf v^\top\mathbf A'x=\mathbf v^\top\mathbf A x+\eta\thinspace r_2\thinspace(\mathbf v^\top\mathbf w)(x^\top x)$。
 - 令它等于 $y_1$，解出使主任务损失为 0 的步长（Eq.7）：
-$$\eta^*=\frac{r_1}{r_2\,\mathbf v^\top\mathbf w\,x^\top x}$$
-- 两个梯度都是秩 1：$\nabla_{\mathbf A}l_m=-r_1\mathbf v x^\top$，$\nabla_{\mathbf A}l_s=-r_2\mathbf w x^\top$。它们的 Frobenius 内积是 $r_1r_2\,\mathbf v^\top\mathbf w\,x^\top x$，因此 $\mathrm{sign}(\eta^*)=\mathrm{sign}\langle\nabla l_m,\nabla l_s\rangle$（附录 Lemma 2）。只要 $\eta^*>0$，由凸性可知任何小的正步长都会降低 $l_m$（Lemma 1）。
-- 由此得到 $\eta^*>0$ 的一个充分条件（Eq.8–9，要求 $x\neq0$ 且两个损失都不为 0）：两个任务的残差同号，即"错在同一个方向"；并且 $\mathbf v^\top\mathbf w>0$，即两个 head 在特征空间里的决策方向相关。
+$$\eta^{\ast}=\frac{r_1}{r_2\thinspace\mathbf v^\top\mathbf w\thinspace x^\top x}$$
+- 两个梯度都是秩 1： $\nabla_{\mathbf A}l_m=-r_1\mathbf v x^\top$， $\nabla_{\mathbf A}l_s=-r_2\mathbf w x^\top$。它们的 Frobenius 内积是 $r_1r_2\thinspace\mathbf v^\top\mathbf w\thinspace x^\top x$，因此 $\mathrm{sign}(\eta^{\ast})=\mathrm{sign}\langle\nabla l_m,\nabla l_s\rangle$（附录 Lemma 2）。只要 $\eta^{\ast}>0$，由凸性可知任何小的正步长都会降低 $l_m$（Lemma 1）。
+- 由此得到 $\eta^{\ast}>0$ 的一个充分条件（Eq.8–9，要求 $x\neq0$ 且两个损失都不为 0）：两个任务的残差同号，即"错在同一个方向"；并且 $\mathbf v^\top\mathbf w>0$，即两个 head 在特征空间里的决策方向相关。
 
-**Theorem 1（一般情形）。** 假设 $l_m$ 对 $\boldsymbol\theta$ 可微、凸、$\beta$-smooth，且 $\|\nabla l_m\|,\|\nabla l_s\|\le G$。取 $\eta=\varepsilon/(\beta G^2)$，那么只要
+**Theorem 1（一般情形）。** 假设 $l_m$ 对 $\boldsymbol\theta$ 可微、凸、 $\beta$-smooth，且 $\Vert\nabla l_m\Vert,\Vert\nabla l_s\Vert\le G$。取 $\eta=\varepsilon/(\beta G^2)$，那么只要
 
 $$\langle\nabla l_m(x,y;\boldsymbol\theta),\nabla l_s(x;\boldsymbol\theta)\rangle>\varepsilon\ \Rightarrow\ l_m(x,y;\boldsymbol\theta-\eta\nabla l_s)<l_m(x,y;\boldsymbol\theta)$$
 
-证明思路：先用 smoothness 得到降幅至少是 $\varepsilon^2/(2\beta G^2)$，此时步长取 $\eta^\star=\langle\cdot,\cdot\rangle/(\beta\|\nabla l_s\|^2)$；然后因为 $\eta\le\eta^\star$，再用凸性插值，说明固定步长 $\eta$ 也能让 $l_m$ 下降。
+证明思路：先用 smoothness 得到降幅至少是 $\varepsilon^2/(2\beta G^2)$，此时步长取 $\eta^\star=\langle\cdot,\cdot\rangle/(\beta\Vert\nabla l_s\Vert^2)$；然后因为 $\eta\le\eta^\star$，再用凸性插值，说明固定步长 $\eta$ 也能让 $l_m$ 下降。
 
 ## 关键实验与证据
 
@@ -86,7 +86,7 @@ $$\langle\nabla l_m(x,y;\boldsymbol\theta),\nabla l_s(x;\boldsymbol\theta)\rangl
 ## 局限与论文没说的
 
 **作者承认的：**
-- 推理开销约为普通测试的 $2\times$`batch_size`$\times$`iterations` 倍（附录 A2）。作者给了两个缓解办法：
+- 推理开销约为普通测试的 $2\times$ `batch_size` $\times$ `iterations` 倍（附录 A2）。作者给了两个缓解办法：
   - 只对 $l_s$ 超过阈值的样本做 TTT，约 20% 的样本需要更新；
   - standard 版改成 1 步、lr 0.01，效果"几乎一样好"。
   - 这两种办法都"未充分验证"。
@@ -130,7 +130,7 @@ $$\langle\nabla l_m(x,y;\boldsymbol\theta),\nabla l_s(x;\boldsymbol\theta)\rangl
 2. self-supervised pretext task，尤其是 rotation prediction（Gidaris et al. 2018）。
 3. distribution shift 的几种设定之间的区别：covariate shift、UDA、domain generalization、adversarial robustness。
 4. BatchNorm 与 GroupNorm 在统计量上的差别，以及小 batch 或单样本 batch 为什么会让 BN 失效。
-5. 凸优化基础：$\beta$-smooth 的 descent lemma、凸组合不等式。有了这些才能推导 Theorem 1。
+5. 凸优化基础： $\beta$-smooth 的 descent lemma、凸组合不等式。有了这些才能推导 Theorem 1。
 6. benchmark：CIFAR-10-C / ImageNet-C（15 种 corruption × 5 个 level）、CIFAR-10.1、ImageNet-VID-Robust。
 
 ## 复现可行性
@@ -139,7 +139,7 @@ $$\langle\nabla l_m(x,y;\boldsymbol\theta),\nabla l_s(x;\boldsymbol\theta)\rangl
   - `ttt_cifar_release` 负责 CIFAR-10-C 与 CIFAR-10.1，入口是 `script.sh` 和 `script_baseline.sh`。
   - `ttt_imagenet_release` 负责 ImageNet-C 与 VID-Robust。
   - 依赖：PyTorch ≥ 1.0、Python 3.7、tqdm、colorama。README 只写了"至少一块有足够显存的现代 GPU"。
-- **算力**：论文没有报告 GPU 型号、数量或训练时长。joint training 的 epoch 数也只写了"standard hyper-parameters"（引用 Huang et al. 2016、He et al. 2016）。测试阶段每个样本的开销是普通推理的 $2\times$`bs`$\times$`iters` 倍（附录 A2），而 TTT 用的 batch size 论文正文没有给出。按实验规模看，CIFAR 部分单卡可行，这是个人判断，不是论文给的数字。真正的瓶颈在 standard TTT 的评测：每个样本要走 10 步，CIFAR-10-C 一个 level 就有 15 × 1 万个样本。ImageNet 部分需要完整的 ImageNet 训练和 ImageNet-C，门槛高得多。
+- **算力**：论文没有报告 GPU 型号、数量或训练时长。joint training 的 epoch 数也只写了"standard hyper-parameters"（引用 Huang et al. 2016、He et al. 2016）。测试阶段每个样本的开销是普通推理的 $2\times$`bs` $\times$`iters` 倍（附录 A2），而 TTT 用的 batch size 论文正文没有给出。按实验规模看，CIFAR 部分单卡可行，这是个人判断，不是论文给的数字。真正的瓶颈在 standard TTT 的评测：每个样本要走 10 步，CIFAR-10-C 一个 level 就有 15 × 1 万个样本。ImageNet 部分需要完整的 ImageNet 训练和 ImageNet-C，门槛高得多。
 - **数据**：CIFAR-10、CIFAR-10-C（Hendrycks & Dietterich 的 robustness 仓库）、CIFAR-10.1（Recht et al.）都可以公开下载，也不需要仿真环境。
 - **最小可复现实验**：
   1. 在 CIFAR-10 上训练 ResNet-26+GN，用 Y 形结构（rotation head 接在第 2 个 group 后）做 joint training，同时训练一个 B baseline。
@@ -154,7 +154,7 @@ $$\langle\nabla l_m(x,y;\boldsymbol\theta),\nabla l_s(x;\boldsymbol\theta)\rangl
 
 ## 自测问题
 
-1. 在两层线性 toy model 中，推导出使 $l_m(\mathbf A')=0$ 的 $\eta^*$，并证明 $\mathrm{sign}(\eta^*)=\mathrm{sign}\langle\nabla l_m,\nabla l_s\rangle$。为什么 Theorem 1 的条件在测试时无法检验？它在实践中还能提供什么指导？
+1. 在两层线性 toy model 中，推导出使 $l_m(\mathbf A')=0$ 的 $\eta^{\ast}$，并证明 $\mathrm{sign}(\eta^{\ast})=\mathrm{sign}\langle\nabla l_m,\nabla l_s\rangle$。为什么 Theorem 1 的条件在测试时无法检验？它在实践中还能提供什么指导？
 2. standard TTT 和 TTT-Online 的初始化方式、每个样本的步数有什么不同？为什么 online 版能在 ImageNet-C 上把 Gaussian noise 的 accuracy 从 2.1% 提到 26.3%，而 standard 版只到 3.1%？这个优势依赖测试流的什么假设？
 3. 为什么 TTT 的实验必须用 GN？在 BN 下，standard 版和 online 版分别会遇到什么问题，论文各自是怎么处理的？
 4. TTT-Online 只能看到已经评测过的样本，为什么还能在 13/15 种 corruption 上胜过能看到整个测试集的 UDA-SS？作者的解释在混合 shift 或 shift 突变的测试流下还成立吗？

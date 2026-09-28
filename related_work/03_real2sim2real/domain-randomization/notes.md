@@ -23,7 +23,7 @@
 
 **1. 训练目标。** 原文没有编号公式，只写了用 Adam 最小化预测位置与真实位置之间的 $L_2$ loss（§III-B）。按 §III 的文字，可以形式化为：
 
-$$\theta^\star=\arg\min_\theta\;\mathbb{E}_{s\sim p(s)}\;\mathbb{E}_{\xi\sim P(\xi)}\Big[\big\|d_\theta\big(\mathcal{R}(s,\xi)\big)-y(s)\big\|_2^2\Big]$$
+$$\theta^\star=\arg\min_\theta\thickspace\mathbb{E}_ {s\sim p(s)}\thickspace\mathbb{E}_ {\xi\sim P(\xi)}\Big[\big\Vert d_\theta\big(\mathcal{R}(s,\xi)\big)-y(s)\big\Vert_2^2\Big]$$
 
 - $s$：与任务相关的场景状态，包括目标位置以及 distractor 的数量、形状和位置（笔记自设符号，不同于原文中表示目标物体的 $s_i$）。
 - $y(s)$：目标质心的世界坐标。
@@ -203,7 +203,7 @@ $$\theta^\star=\arg\min_\theta\;\mathbb{E}_{s\sim p(s)}\;\mathbb{E}_{\xi\sim P(\
 ## 自测问题
 
 1. 为什么**目标物体自身的纹理**也必须随机？如果只随机化背景，网络最可能学到什么捷径？这和"能区分紧挨着的同色物体"有什么关系？
-2. Fig. 5 中，只用 1,000 种纹理时，1 万张图的效果约等于 1,000 张图。从 $\mathbb{E}_{s}\mathbb{E}_{\xi}$ 两个期望的角度解释：为什么低数据区间里 $\xi$ 的多样性比 $s$ 的多样性更重要？
+2. Fig. 5 中，只用 1,000 种纹理时，1 万张图的效果约等于 1,000 张图。从 $\mathbb{E}_ {s}\mathbb{E}_ {\xi}$ 两个期望的角度解释：为什么低数据区间里 $\xi$ 的多样性比 $s$ 的多样性更重要？
 3. Table II 中，去掉训练 distractor 后，单独放置的误差几乎不变，而有干扰物时误差从 1.8 升到 7.2。请从回归目标 $y(s)$ 的角度，推测网络在真实杂乱场景中的失败模式。
 4. 为什么学习率过大时，网络容易陷入"把所有物体都映射到桌子中心"的局部最优？这个解在 $L_2$ loss 下对应什么统计量？
 5. 如果真实环境的某个参数（例如相机偏离手动放置点 30 cm）落在 $P(\xi)$ 之外，DR 会怎样？SimOpt（调整 $P(\xi)$）、RMA（在线推断环境参数）、PAD/TTT（测试时自监督更新）各自从哪个环节解决这个问题？

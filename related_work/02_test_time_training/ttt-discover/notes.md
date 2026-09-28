@@ -5,11 +5,11 @@
 
 ## 一句话
 
-针对单个科学/工程问题，在测试时用 RL 继续训练 LLM（gpt-oss-120b + LoRA）。因为 discovery 只要求找到一个超过 SOTA 的解，不要求 policy 的平均表现好，所以作者把训练目标换成偏向最大值的 entropic objective（$\beta$ 由 KL 预算自适应确定），并把起点选择换成以"子代最大 reward"作 $Q$ 的 PUCT state reuse。这个方法叫 TTT-Discover。
+针对单个科学/工程问题，在测试时用 RL 继续训练 LLM（gpt-oss-120b + LoRA）。因为 discovery 只要求找到一个超过 SOTA 的解，不要求 policy 的平均表现好，所以作者把训练目标换成偏向最大值的 entropic objective（ $\beta$ 由 KL 预算自适应确定），并把起点选择换成以"子代最大 reward"作 $Q$ 的 PUCT state reuse。这个方法叫 TTT-Discover。
 
 ## 问题设定
 
-- **形式化**（`source/main.tex` §2.1）：问题以文本描述 $d$ 给出，$d$ 始终作为 policy 的 context。state $s$ 是一个候选解，比如一个 kernel 实现或一个阶梯函数。$d$ 诱导出连续 reward $R(s)\in\mathbb R$ 和 transition。记已知最好解为 $s_{\text{sota}}$、$r_{\text{sota}}=R(s_{\text{sota}})$。**Discovery** 定义为找到满足 $R(s)>r_{\text{sota}}$ 的 $s$，差值越大，发现越重要。
+- **形式化**（`source/main.tex` §2.1）：问题以文本描述 $d$ 给出， $d$ 始终作为 policy 的 context。state $s$ 是一个候选解，比如一个 kernel 实现或一个阶梯函数。 $d$ 诱导出连续 reward $R(s)\in\mathbb R$ 和 transition。记已知最好解为 $s_{\text{sota}}$、 $r_{\text{sota}}=R(s_{\text{sota}})$。**Discovery** 定义为找到满足 $R(s)>r_{\text{sota}}$ 的 $s$，差值越大，发现越重要。
 - **MDP**：action $a\sim\pi_\theta(\cdot\mid d,s)$ 由 thinking tokens 加一段代码组成。coding 类任务的 transition 是 $s'=\texttt{Parse}(a)$，数学类任务是 $s'=\texttt{Python}(\texttt{Parse}(a))$，即先执行代码（Table 1）。只考虑单步；多步由 state reuse 等效实现（§2.1）。无效解的 reward 为 0（Table 1 caption）。
 - **假设**：reward 连续、可验证、可以反复调用（每个问题约 25600 次评估）；评测器就是真值，不存在 reward model 误差。输出不是 policy，而是 buffer 里 reward 最高的那个 state（Algorithm 1 最后一行）。
 - **与标准 RL 的两点区别**（§1、§3.1）：(1) 只需解这一个问题，不要求泛化，这是 TTT 的老主题；(2) 只需要一个最好的解，policy 只是手段，这一点是 discovery 独有的。因此没有部署阶段，policy 不需要在初始状态分布上稳健。
@@ -23,18 +23,18 @@
 ## 核心方法
 
 **0. 搜索基线的统一写法**（§2.2）。设 buffer 为 $\mathcal H_i$。
-- Best-of-$N$：$s=s_{\text{sota}}$ 或 $\texttt{<empty>}$，$a_i\sim\pi_\theta(\cdot\mid d,s)$，各 rollout 独立同分布。
-- State reuse：$s_i\sim\texttt{reuse}(\mathcal H_i)$，$a_i\sim\pi_\theta(\cdot\mid d,s_i)$，$\mathcal H_{i+1}=\mathcal H_i\cup\{(s'_i,r_i)\}$。复用一个旧解，就等于给那条轨迹多加了一个 timestep。
+- $\text{Best-of-}N$： $s=s_{\text{sota}}$ 或 $\langle\texttt{empty}\rangle$， $a_i\sim\pi_\theta(\cdot\mid d,s)$，各 rollout 独立同分布。
+- State reuse： $s_i\sim\texttt{reuse}(\mathcal H_i)$， $a_i\sim\pi_\theta(\cdot\mid d,s_i)$， $\mathcal H_{i+1}=\mathcal H_i\cup\lbrace(s'_ i,r_i)\rbrace$。复用一个旧解，就等于给那条轨迹多加了一个 timestep。
 - State-action reuse（即 evolutionary search）：reuse 还会把旧 action 里的信息（thinking、中间结果）整理成自然语言 context $c_i$。
 
 **1. 总框架**（Algorithm 1）。对 $i=0,\dots,N-1$ 循环：
 - $s_i,c_i\sim\texttt{reuse}(\mathcal H_i)$
 - $a_i\sim\pi_{\theta_i}(\cdot\mid d,s_i,c_i)$
-- $s'_i=T(a_i)$，$r_i=R(s'_i)$
-- 把 $(s_i,a_i,s'_i,r_i)$ 加入 $\mathcal H$
+- $s'_ i=T(a_i)$， $r_i=R(s'_ i)$
+- 把 $(s_i,a_i,s'_ i,r_i)$ 加入 $\mathcal H$
 - $\theta_{i+1}=\texttt{train}(\theta_i,\cdot)$
 
-最后返回 $\arg\max_i r_i$ 对应的 state。naive RL 等价于 $\texttt{train}$ 取期望 reward 的 policy gradient、$\texttt{reuse}=\delta_{\texttt{<empty>}}$（§3.1）。TTT-Discover 取（§3.2）
+最后返回 $\arg\max_i r_i$ 对应的 state。naive RL 等价于 $\texttt{train}$ 取期望 reward 的 policy gradient、 $\texttt{reuse}=\delta_{\langle\texttt{empty}\rangle}$（§3.1）。TTT-Discover 取（§3.2）
 
 $$\texttt{train}:\ \theta_{i+1}=\theta_i+\eta\nabla_\theta J_{\beta(s_i)}(\theta_i),\qquad \texttt{reuse}:\ s_i\sim\mathrm{PUCT}(\mathcal H_i).$$
 
@@ -42,9 +42,9 @@ $$\texttt{train}:\ \theta_{i+1}=\theta_i+\eta\nabla_\theta J_{\beta(s_i)}(\theta
 
 $$J_\beta(\theta)=\mathbb E_{s\sim\texttt{reuse}(\mathcal H)}\Big[\log\mathbb E_{a\sim\pi_\theta(\cdot\mid s)}\big[e^{\beta(s)R(s,a)}\big]\Big]$$
 
-对内层求导（这里把 reuse 分布视为常数），$\nabla\log\mathbb E[e^{\beta R}]=\mathbb E[e^{\beta R}\nabla\log\pi]/\mathbb E[e^{\beta R}]$，于是
+对内层求导（这里把 reuse 分布视为常数）， $\nabla\log\mathbb E[e^{\beta R}]=\mathbb E[e^{\beta R}\nabla\log\pi]/\mathbb E[e^{\beta R}]$，于是
 
-$$\nabla_\theta J_\beta=\mathbb E\big[w_{\beta(s)}(a)\,\nabla_\theta\log\pi_\theta(a\mid s)\big],\qquad w_{\beta(s)}(a)=\frac{e^{\beta(s)R(s,a)}}{\mathbb E_{\pi_\theta}[e^{\beta(s)R(s,a)}]}.$$
+$$\nabla_\theta J_\beta=\mathbb E\big[w_{\beta(s)}(a)\thinspace\nabla_\theta\log\pi_\theta(a\mid s)\big],\qquad w_{\beta(s)}(a)=\frac{e^{\beta(s)R(s,a)}}{\mathbb E_{\pi_\theta}[e^{\beta(s)R(s,a)}]}.$$
 
 因为 $\mathbb E[w]=1$，用 $-1$ 作 baseline。再加上对初始模型的 KL shaping，advantage 为
 
@@ -52,23 +52,23 @@ $$A(a;s)=w_{\beta(s)}(a)-1-\lambda\log\frac{\pi_\theta(a\mid s)}{\pi_{\theta_0}(
 
 $\lambda=0.1$，只有 AtCoder 用 $0.01$（App. A、Table 9）。
 
-- **直觉**（笔者补的推导）：展开得 $\log\mathbb E[e^{\beta R}]\approx\beta\mathbb E[R]+\tfrac{\beta^2}{2}\mathrm{Var}[R]$，所以 $\beta\to0$ 时 $J_\beta/\beta$ 退化为期望 reward；论文说明 $\beta\to\infty$ 时趋于 $\max$。$w$ 实际上就是按 reward 做 softmax 加权，高 reward 的 rollout 拿走绝大部分梯度。
-- 并发工作 jiang2025risk 用同一个 objective 在训练期优化 pass@k，推荐 $\beta=2$。本文发现常数 $\beta$ 不好设：训练早期 $\beta$ 太大会不稳定；训练后期改进越来越小，$\beta$ 小了 advantage 会消失。
+- **直觉**（笔者补的推导）：展开得 $\log\mathbb E[e^{\beta R}]\approx\beta\mathbb E[R]+\tfrac{\beta^2}{2}\mathrm{Var}[R]$，所以 $\beta\to0$ 时 $J_\beta/\beta$ 退化为期望 reward；论文说明 $\beta\to\infty$ 时趋于 $\max$。 $w$ 实际上就是按 reward 做 softmax 加权，高 reward 的 rollout 拿走绝大部分梯度。
+- 并发工作 jiang2025risk 用同一个 objective 在训练期优化 pass@k，推荐 $\beta=2$。本文发现常数 $\beta$ 不好设：训练早期 $\beta$ 太大会不稳定；训练后期改进越来越小， $\beta$ 小了 advantage 会消失。
 
-**3. 自适应 $\beta$**（App. A.1）。定义 tilted distribution $q_\beta(\tau\mid s)=\pi_\theta(\tau\mid s)e^{\beta r}/\mathbb E_{\pi_\theta}[e^{\beta r}]$，于是 $w_\beta=q_\beta/\pi_\theta$，$\beta$ 就相当于这次重加权的"步长"。仿照 REPS，取 $\beta(s)$ 使 $\mathrm{KL}(q_{\beta(s)}\|\pi_\theta)=\gamma$，全文固定 $\gamma=\ln2$。
+**3. 自适应 $\beta$**（App. A.1）。定义 tilted distribution $q_\beta(\tau\mid s)=\pi_\theta(\tau\mid s)e^{\beta r}/\mathbb E_{\pi_\theta}[e^{\beta r}]$，于是 $w_\beta=q_\beta/\pi_\theta$， $\beta$ 就相当于这次重加权的"步长"。仿照 REPS，取 $\beta(s)$ 使 $\mathrm{KL}(q_{\beta(s)}\Vert\pi_\theta)=\gamma$，全文固定 $\gamma=\ln2$。
 
 在 batch 上的做法：同一 $s$ 下有 $N$ 条 rollout，经验分布是均匀的 $u(n)=1/N$。令 $q_\beta(n)=e^{\beta r_n}/\sum_m e^{\beta r_m}$，在 $\beta\ge0$ 上二分求解
 
-$$\mathrm{KL}(q_\beta\|u)=\sum_n q_\beta(n)\log(Nq_\beta(n))=\gamma .$$
+$$\mathrm{KL}(q_\beta\Vert u)=\sum_n q_\beta(n)\log(Nq_\beta(n))=\gamma .$$
 
 然后算 leave-one-out entropic advantage：
 
 $$\hat Z_{-n}=\frac{1}{N-1}\sum_{m\neq n}e^{\hat\beta(s)(r_m-r_{\max})},\qquad A_n=\frac{e^{\hat\beta(s)(r_n-r_{\max})}}{\hat Z_{-n}+\varepsilon}-1 .$$
 
 几点理解：
-- 笔者补的推导：$\mathrm{KL}(q\|u)=\log N-H(q)$，所以 $\gamma=\ln2$ 等价于 $e^{H(q)}=N/2$。也就是说，不管 reward 的尺度如何，权重的"有效样本数"总是固定在组内的一半，本文组大小为 64，即 32 条。
+- 笔者补的推导： $\mathrm{KL}(q\Vert u)=\log N-H(q)$，所以 $\gamma=\ln2$ 等价于 $e^{H(q)}=N/2$。也就是说，不管 reward 的尺度如何，权重的"有效样本数"总是固定在组内的一半，本文组大小为 64，即 32 条。
 - 论文指出的性质：
-  - 这个估计量对 reward 的仿射变换 $wr+b$（$w>0$）不变，所以 1/runtime、分数、1/MSE 这些尺度差别很大的任务可以共用同一个 $\gamma$。
+  - 这个估计量对 reward 的仿射变换 $wr+b$（ $w>0$）不变，所以 1/runtime、分数、1/MSE 这些尺度差别很大的任务可以共用同一个 $\gamma$。
   - 改进一直很小的 state（论文举例：高 value / 接近目标的 state）会被允许用更大的 $\beta$。
   - 偶尔出现大幅跳变的 state（论文说常见于训练早期，或还有很大提升空间的低 value state）会被压成更小的 $\beta$，避免更新被少数离群 rollout 主导。
 
@@ -77,7 +77,7 @@ $$\hat Z_{-n}=\frac{1}{N-1}\sum_{m\neq n}e^{\hat\beta(s)(r_m-r_{\max})},\qquad A
 $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 
 各项含义：
-- $Q(s)$：从 $s$ 出发生成的子代中的**最大** reward $m(s)$；$s$ 还没被展开时取 $R(s)$。
+- $Q(s)$：从 $s$ 出发生成的子代中的**最大** reward $m(s)$； $s$ 还没被展开时取 $R(s)$。
 - $P(s)\propto|\mathcal H|-\text{rank}(s)$：按 reward 线性排名的先验。直觉是快的 kernel 更可能孕育更快的 kernel。
 - $n(s)$：访问计数，会回传给**所有祖先**。
 - $T$：已展开的总次数。
@@ -102,10 +102,10 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 - 模型与平台：gpt-oss-120b，reasoning effort 设为 high，在 Tinker API 上训练 LoRA（rank 32），共 50 步。
 - batch：每步 512 条 rollout，分成 8 组、每组 64 条。每组共享 PUCT 选出的同一个起点和 context，自适应 $\beta$ 和 LOO baseline 都在组内计算。
 - 更新：每个 batch 只做 1 步梯度，没有 off-policy 步。用 importance sampling ratio 修正 sampler/learner mismatch。
-- 优化器与采样：Adam，lr $4\times10^{-5}$，$\beta_1=0.9$、$\beta_2=0.95$、$\epsilon=10^{-8}$；temperature 1.0。
+- 优化器与采样：Adam，lr $4\times10^{-5}$， $\beta_1=0.9$、 $\beta_2=0.95$、 $\epsilon=10^{-8}$；temperature 1.0。
 - 长度控制：context 32768。大多数领域把 prompt 加 thinking 限制在 26000 token，超出后用 token forcing 插入 "... okay, I am out of thinking tokens..." 强制模型给出最终答案。
 - 例外（App. D、E）：AHC039 的该限制降到 22000，AHC058 降到 25000 且 lr 改为 $2\times10^{-5}$；denoising 的 max tokens 为 20000。
-- 基线预算：Best-of-$N$ 取 $N=50\times512=25600$，与本方法的采样预算相同。
+- 基线预算： $\text{Best-of-}N$ 取 $N=50\times512=25600$，与本方法的采样预算相同。
 
 ## 关键实验与证据
 
@@ -146,13 +146,13 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 | train | reuse | runtime |
 |---|---|---|
 | adaptive entropic | PUCT | **1203.10** |
-| constant $\beta$（$\beta=2$，取自 jiang2025risk） | PUCT | 1483.83 |
+| constant $\beta$（ $\beta=2$，取自 jiang2025risk） | PUCT | 1483.83 |
 | expected reward | PUCT | 1985.67 |
 | No TTT | PUCT | 2060.70 |
-| adaptive entropic | $\epsilon$-greedy（$\epsilon=0.1$） | 1328.89 |
+| adaptive entropic | $\epsilon$-greedy（ $\epsilon=0.1$） | 1328.89 |
 | adaptive entropic | no reuse | 5274.03 |
 | expected reward（naive test-time RL） | no reuse | 5328.73 |
-| No TTT（Best-of-$N$） | no reuse | 5352.36 |
+| No TTT（ $\text{Best-of-}N$） | no reuse | 5352.36 |
 
 （best human 为 1371.1）
 
@@ -161,7 +161,7 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
   - **在有 reuse 的前提下，学习本身很关键**：No TTT 为 2060.70，full 为 1203.10。
   - **objective 的形式也很关键**：runtime 从 expected reward 的 1985.67 到 constant $\beta$ 的 1483.83，再到 adaptive 的 1203.10，依次变快。
 - PUCT 相对 $\epsilon$-greedy 只好一点，论文把 $\epsilon$-greedy 的表现部分归因于早期碰巧出现的好 kernel，并说其他任务的早期实验更缺探索，但没有给出数字。
-- Figure 4 显示：constant $\beta$ 在后期停滞；No TTT 的 mean reward 基本不涨；max reward 在末段越过 "Previous SOTA" 虚线的是 full 方法和 Greedy（$\epsilon$-greedy）两条曲线，与 Table 8 里二者都快于 best human 的 1371.1 一致，其中 full 方法越过得更多。
+- Figure 4 显示：constant $\beta$ 在后期停滞；No TTT 的 mean reward 基本不涨；max reward 在末段越过 "Previous SOTA" 虚线的是 full 方法和 Greedy（ $\epsilon$-greedy）两条曲线，与 Table 8 里二者都快于 best human 的 1371.1 一致，其中 full 方法越过得更多。
 
 ## 局限与论文没说的
 
@@ -184,7 +184,7 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 5. **算力口径不完整**："约 \$500/run" 是按平均 3000 prompt token、16000 采样 token 估算的 Tinker 费用，不含 evaluator 开销：TriMul 在 Modal 上的 H100 计时、数学任务每条 rollout 2 CPU 且最长 1100 s、AHC 每条跑 150 个 case。训练 GPU 的型号、数量和 wall-clock 都藏在 Tinker 后面，论文没报告。
 6. **每个问题都从头学、学完就扔**：得到的 policy 是否对同类问题有迁移价值没有测试。唯一的"迁移"是解本身跨硬件：H100 训练出的 kernel 在 A100/B200/MI300X 上成立，而 H200 训练、目标 MI300X 的 MLA 没有显著超过第 1 名人类。这可能说明代理 evaluator 与目标 evaluator 之间的 gap 会影响结果能否迁移，但两者任务也不同，论文没有做对照。
 7. **reward hacking 的防护靠人工写约束**：denoising 要加 Poisson 区间约束，kernel 依赖官方的正确性检查。entropic objective 会放大任何能被钻空子的地方，evaluator 一旦不精确，风险比优化期望 reward 更高。
-8. **超参只有一组**：$\gamma=\ln2$、$c=1.0$、LoRA rank 32、50 步都是固定的，没有给出"更多步数是否持续有效"的 scaling 曲线。
+8. **超参只有一组**： $\gamma=\ln2$、 $c=1.0$、LoRA rank 32、50 步都是固定的，没有给出"更多步数是否持续有效"的 scaling 曲线。
 
 ## 在脉络中的位置
 
@@ -205,7 +205,7 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 ## 前置知识
 
 1. Policy gradient / REINFORCE、baseline 与 advantage，GRPO 的组内 baseline，对 reference policy 的 KL penalty（[PPO](../../04_rl/ppo/notes.md)、[DeepSeek-R1](../../04_rl/deepseek-r1/notes.md)）。
-2. 指数倾斜、log-sum-exp、softmax 温度，KL 与熵的关系（$\mathrm{KL}(q\|u)=\log N-H(q)$），REPS 的 KL 约束温度。
+2. 指数倾斜、log-sum-exp、softmax 温度，KL 与熵的关系（ $\mathrm{KL}(q\Vert u)=\log N-H(q)$），REPS 的 KL 约束温度。
 3. MCTS / PUCT / UCB 的 exploration bonus（AlphaZero）。
 4. LLM 的 RL 基础设施：LoRA、on-policy 更新、sampler/learner mismatch 与 importance sampling 修正。
 5. Test-time scaling 的搜索基线：Best-of-N、AlphaEvolve 式的 evolutionary search。
@@ -223,8 +223,8 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 
   一次完整 run 要做 25600 次评估，评测的吞吐和沙箱是隐性成本。
 - **最小可复现实验**：
-  1. 先离线做单元测试：实现二分求 $\beta$ 加 LOO advantage（App. A.1 的公式），检查 $\mathrm{KL}(q\|u)=\ln2$，以及对 reward 做 $wr+b$ 变换后 advantage 不变。
-  2. 再选纯 CPU 的 AC1 或 Erdős，用 Qwen3-8B，保持 8×64、50 步。目标是复现论文里 Qwen3-8B 的 AC1 结果 1.50525（Table 2）；Erdős 的打分核心只有一行 `np.correlate`（prompt 里写的是 `C5 = max(np.correlate(h, 1-h, mode="full") * dx)`），外加 $h\in[0,1]$、$\int h=1$ 的约束检查。
+  1. 先离线做单元测试：实现二分求 $\beta$ 加 LOO advantage（App. A.1 的公式），检查 $\mathrm{KL}(q\Vert u)=\ln2$，以及对 reward 做 $wr+b$ 变换后 advantage 不变。
+  2. 再选纯 CPU 的 AC1 或 Erdős，用 Qwen3-8B，保持 8×64、50 步。目标是复现论文里 Qwen3-8B 的 AC1 结果 1.50525（Table 2）；Erdős 的打分核心只有一行 `np.correlate`（prompt 里写的是 `C5 = max(np.correlate(h, 1-h, mode="full") * dx)`），外加 $h\in[0,1]$、 $\int h=1$ 的约束检查。
   3. 在同一设置下跑三组对照：expected reward vs adaptive entropic、PUCT vs no reuse、Best-of-25600。以此检验 Table 8 的排序能否在数学任务上复现，论文只在 TriMul 上做了消融。
 - **难点**：
   - 依赖付费的 Tinker API。换成本地 vLLM 加 LoRA 训练时，要自己处理 sampler/learner mismatch 的 IS 修正。
@@ -236,6 +236,6 @@ $$\text{score}(s)=Q(s)+c\cdot\text{scale}\cdot P(s)\frac{\sqrt{1+T}}{1+n(s)} .$$
 
 1. 在 Table 8 中，adaptive entropic 加 no reuse（5274.03）几乎和 Best-of-N（5352.36）一样。§3.1 的三个缺陷里，哪个是 reuse 解决的，哪个是 entropic objective 解决的？为什么缺了 reuse，训练目标再好也没用？
 2. 从 $J_\beta=\log\mathbb E[e^{\beta R}]$ 推出 $\nabla J_\beta=\mathbb E[w\nabla\log\pi]$，并说明为什么 $w-1$ 是合法的 baseline 形式。分析 $\beta\to0$ 和 $\beta\to\infty$ 两个极限，以及常数 $\beta$ 在训练早期和后期分别会出什么问题。
-3. 组大小为 64、$\gamma=\ln2$ 时，KL 约束对权重分布意味着什么（有效样本数是多少）？为什么这个估计量对 reward 的仿射变换不变？这一点对"一套超参跑遍数学、kernel、AtCoder、生物"为什么重要？
-4. 本文的 PUCT 与 AlphaZero 的 PUCT 有哪四点不同？$Q$ 取 max 而不取 mean、访问计数回传整条 lineage，分别是在对付什么问题？
+3. 组大小为 64、 $\gamma=\ln2$ 时，KL 约束对权重分布意味着什么（有效样本数是多少）？为什么这个估计量对 reward 的仿射变换不变？这一点对"一套超参跑遍数学、kernel、AtCoder、生物"为什么重要？
+4. 本文的 PUCT 与 AlphaZero 的 PUCT 有哪四点不同？ $Q$ 取 max 而不取 mean、访问计数回传整条 lineage，分别是在对付什么问题？
 5. TTT-Discover、[TTRL](../ttrl/notes.md) 和原始 [TTT](../ttt-self-supervised/notes.md) 分别为每个测试实例构造了什么样的学习问题？最终产出的是参数、预测还是解？如果把精确的 evaluator 换成 learned world model，entropic objective 会放大哪种失败模式？

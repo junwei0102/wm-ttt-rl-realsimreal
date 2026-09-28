@@ -11,34 +11,34 @@
 
 - **形式化**（Sec 3.1）：infinite-horizon MDP $(\mathcal S,\mathcal A,p,r)$。状态和动作都是连续的，转移密度 $p$ 未知，reward 有界 $r\in[r_{\min},r_{\max}]$。实验中的输入是 MuJoCo 低维 state，完全可观测，reward 为 dense。设定是 model-free 的 online 交互，经验存入 replay buffer $\mathcal D$。输出是随机策略 $\pi_\phi(\mathbf a|\mathbf s)$。
 - **目标**（Eq.1，`source/main_no_comments.tex` `eq:maxent_objective`）：
-  $$J(\pi)=\sum_{t=0}^{T}\mathbb E_{(\mathbf s_t,\mathbf a_t)\sim\rho_\pi}\big[r(\mathbf s_t,\mathbf a_t)+\alpha\,\mathcal H(\pi(\cdot|\mathbf s_t))\big]$$
+  $$J(\pi)=\sum_{t=0}^{T}\mathbb E_{(\mathbf s_t,\mathbf a_t)\sim\rho_\pi}\big[r(\mathbf s_t,\mathbf a_t)+\alpha\thinspace\mathcal H(\pi(\cdot|\mathbf s_t))\big]$$
   温度 $\alpha\to0$ 时退化为标准 RL。正文此后省略 $\alpha$，因为它总能通过把 reward 乘以 $\alpha^{-1}$ 吸收进 reward。所以实践中真正需要调的是 **reward scale（等价于 $1/\alpha$）**。带折扣的严格定义见 App A Eq.14。
 - **此前方法卡在哪**（Sec 1–2）：① TRPO、PPO、A3C 等 on-policy 方法每个梯度步都需要新样本，样本效率差；② DDPG 是 off-policy 的，但 deterministic actor 与 Q 相互耦合，对超参极其敏感，很难扩展到 Humanoid（21 维动作）；③ 已有的最大熵 off-policy 方法 soft Q-learning（SQL）本质上是 Q-learning：它估计的是**最优** soft Q，actor 只是一个近似采样器（approximate sampler），收敛性取决于这个 sampler 对 $\exp(Q)$ 的近似程度，连续动作下还需要复杂的近似推断。
 
 ## 核心方法
 
 **1. Soft policy evaluation（Sec 4.1, Eq.2–3, Lemma 1）。** 对固定的 $\pi$，反复应用 soft Bellman backup：
-$$\mathcal T^\pi Q(\mathbf s_t,\mathbf a_t)\triangleq r(\mathbf s_t,\mathbf a_t)+\gamma\,\mathbb E_{\mathbf s_{t+1}\sim p}[V(\mathbf s_{t+1})],\qquad V(\mathbf s_t)=\mathbb E_{\mathbf a_t\sim\pi}[Q(\mathbf s_t,\mathbf a_t)-\log\pi(\mathbf a_t|\mathbf s_t)]$$
-证明思路（App B.1 Eq.15）：把熵并入 reward，定义 $r_\pi=r+\gamma\mathbb E_{\mathbf s'}[\mathcal H(\pi(\cdot|\mathbf s'))]$。这样问题就变成标准的 policy evaluation，压缩映射的结论可以直接套用。原文定义 $r_\pi$ 时漏写了 $\gamma$，展开 Eq.2 即可看出应该有。$|\mathcal A|<\infty$ 的假设只是为了保证熵有界。
+$$\mathcal T^\pi Q(\mathbf s_t,\mathbf a_t)\triangleq r(\mathbf s_t,\mathbf a_t)+\gamma\thinspace\mathbb E_{\mathbf s_{t+1}\sim p}[V(\mathbf s_{t+1})],\qquad V(\mathbf s_t)=\mathbb E_{\mathbf a_t\sim\pi}[Q(\mathbf s_t,\mathbf a_t)-\log\pi(\mathbf a_t|\mathbf s_t)]$$
+证明思路（App B.1 Eq.15）：把熵并入 reward，定义 $r_\pi=r+\gamma\mathbb E_{\mathbf s'}[\mathcal H(\pi(\cdot|\mathbf s'))]$。这样问题就变成标准的 policy evaluation，压缩映射的结论可以直接套用。原文定义 $r_\pi$ 时漏写了 $\gamma$，展开 Eq.2 即可看出应该有。 $|\mathcal A|<\infty$ 的假设只是为了保证熵有界。
 
 **2. Soft policy improvement（Eq.4, Lemma 2）。** 对每个状态，把新策略 information projection 到策略类 $\Pi$（例如 Gaussian 族）：
-$$\pi_{\text{new}}=\arg\min_{\pi'\in\Pi}\mathrm D_{\mathrm{KL}}\Big(\pi'(\cdot|\mathbf s_t)\,\Big\|\,\frac{\exp(Q^{\pi_{\text{old}}}(\mathbf s_t,\cdot))}{Z^{\pi_{\text{old}}}(\mathbf s_t)}\Big)$$
-白板推导（App B.2 Eq.16–19）：$\pi_{\text{old}}\in\Pi$ 本身是可行解，所以最优解的 KL 不会比它大。又因为 $\log Z$ 只依赖状态，可以消去，得到 $\mathbb E_{\mathbf a\sim\pi_{\text{new}}}[Q^{\text{old}}-\log\pi_{\text{new}}]\ge V^{\text{old}}(\mathbf s)$（Eq.18）。把这个不等式代入 soft Bellman 方程，逐步展开 $Q^{\text{old}}$，就得到 $Q^{\text{new}}\ge Q^{\text{old}}$（Eq.19）。
-**Theorem 1**：$Q^{\pi_i}$ 单调不减且有上界，因此收敛。在不动点上，任何 $\pi\in\Pi$ 的 soft value 都不会更高，所以收敛到的是 **$\Pi$ 内**最优。这一结论与策略的参数化方式无关，是 SAC 相对 SQL 在理论上的卖点。
+$$\pi_{\text{new}}=\arg\min_{\pi'\in\Pi}\mathrm D_{\mathrm{KL}}\Big(\pi'(\cdot|\mathbf s_t)\thinspace\Big\Vert\thinspace\frac{\exp(Q^{\pi_{\text{old}}}(\mathbf s_t,\cdot))}{Z^{\pi_{\text{old}}}(\mathbf s_t)}\Big)$$
+白板推导（App B.2 Eq.16–19）： $\pi_{\text{old}}\in\Pi$ 本身是可行解，所以最优解的 KL 不会比它大。又因为 $\log Z$ 只依赖状态，可以消去，得到 $\mathbb E_{\mathbf a\sim\pi_{\text{new}}}[Q^{\text{old}}-\log\pi_{\text{new}}]\ge V^{\text{old}}(\mathbf s)$（Eq.18）。把这个不等式代入 soft Bellman 方程，逐步展开 $Q^{\text{old}}$，就得到 $Q^{\text{new}}\ge Q^{\text{old}}$（Eq.19）。
+**Theorem 1**： $Q^{\pi_i}$ 单调不减且有上界，因此收敛。在不动点上，任何 $\pi\in\Pi$ 的 soft value 都不会更高，所以收敛到的是 **$\Pi$ 内**最优。这一结论与策略的参数化方式无关，是 SAC 相对 SQL 在理论上的卖点。
 
 **3. 函数近似版 SAC（Sec 4.2）。** 两步都不跑到收敛，而是各做一步 SGD 交替进行。网络包括 $V_\psi$ 及其目标网络 $V_{\bar\psi}$、两个 $Q_{\theta_{1,2}}$，以及策略 $\pi_\phi$：
 
-- **V 损失**（Eq.5–6）：$J_V(\psi)=\mathbb E_{\mathbf s_t\sim\mathcal D}\big[\tfrac12(V_\psi(\mathbf s_t)-\mathbb E_{\mathbf a_t\sim\pi_\phi}[Q_\theta(\mathbf s_t,\mathbf a_t)-\log\pi_\phi(\mathbf a_t|\mathbf s_t)])^2\big]$。**$\mathbf s$ 取自 buffer，$\mathbf a$ 从当前策略重新采样。**作者说，从理论上讲 V 可以直接由 Q 和 $\pi$ 用单个样本无偏估计，单独学一个 V 网络是为了让训练更稳定。
-- **Q 损失**（Eq.7–9）：$J_Q(\theta)=\mathbb E_{(\mathbf s_t,\mathbf a_t)\sim\mathcal D}\big[\tfrac12(Q_\theta(\mathbf s_t,\mathbf a_t)-r-\gamma V_{\bar\psi}(\mathbf s_{t+1}))^2\big]$。$(\mathbf s,\mathbf a,r,\mathbf s')$ 全部来自 buffer，TD target 用 target V 计算。
-- **策略损失**（Eq.10→12）：直接最小化 Eq.4 的期望 KL。$Z$ 与 $\phi$ 无关，可以丢掉。再用重参数化 $\mathbf a_t=f_\phi(\epsilon_t;\mathbf s_t),\ \epsilon_t\sim\mathcal N$（Eq.11）得到
+- **V 损失**（Eq.5–6）： $J_V(\psi)=\mathbb E_{\mathbf s_t\sim\mathcal D}\big[\tfrac12(V_\psi(\mathbf s_t)-\mathbb E_{\mathbf a_t\sim\pi_\phi}[Q_\theta(\mathbf s_t,\mathbf a_t)-\log\pi_\phi(\mathbf a_t|\mathbf s_t)])^2\big]$。**$\mathbf s$ 取自 buffer， $\mathbf a$ 从当前策略重新采样**。作者说，从理论上讲 V 可以直接由 Q 和 $\pi$ 用单个样本无偏估计，单独学一个 V 网络是为了让训练更稳定。
+- **Q 损失**（Eq.7–9）： $J_Q(\theta)=\mathbb E_{(\mathbf s_t,\mathbf a_t)\sim\mathcal D}\big[\tfrac12(Q_\theta(\mathbf s_t,\mathbf a_t)-r-\gamma V_{\bar\psi}(\mathbf s_{t+1}))^2\big]$。 $(\mathbf s,\mathbf a,r,\mathbf s')$ 全部来自 buffer，TD target 用 target V 计算。
+- **策略损失**（Eq.10→12）：直接最小化 Eq.4 的期望 KL。 $Z$ 与 $\phi$ 无关，可以丢掉。再用重参数化 $\mathbf a_t=f_\phi(\epsilon_t;\mathbf s_t),\ \epsilon_t\sim\mathcal N$（Eq.11）得到
   $$J_\pi(\phi)=\mathbb E_{\mathbf s_t\sim\mathcal D,\epsilon_t\sim\mathcal N}\big[\log\pi_\phi(f_\phi(\epsilon_t;\mathbf s_t)|\mathbf s_t)-Q_\theta(\mathbf s_t,f_\phi(\epsilon_t;\mathbf s_t))\big]$$
   梯度（Eq.13）为 $\hat\nabla_\phi J_\pi=\nabla_\phi\log\pi_\phi(\mathbf a_t|\mathbf s_t)+(\nabla_{\mathbf a_t}\log\pi_\phi(\mathbf a_t|\mathbf s_t)-\nabla_{\mathbf a_t}Q(\mathbf s_t,\mathbf a_t))\nabla_\phi f_\phi(\epsilon_t;\mathbf s_t)$。和 DDPG 的 actor 更新（最大化 $Q(\mathbf s,\mu(\mathbf s))$）对照着看：SAC 相当于"注入噪声的 DDPG 式 pathwise gradient，再加一个熵项"。因为 Q 可微，这里用重参数化，而不是方差更大的 likelihood-ratio（REINFORCE）估计。
-- **Twin Q**：两个 Q 独立训练，在 **V 的 target（Eq.6）和策略梯度（Eq.13）**里取 $\min(Q_{\theta_1},Q_{\theta_2})$，做法沿用 TD3，用来抑制 overestimation。作者说单个 Q 也能学会 21 维 Humanoid，但两个 Q 会"显著加快"训练。
-- **Target 网络**：只对 V 维护目标网络，用 EMA 更新 $\bar\psi\leftarrow\tau\psi+(1-\tau)\bar\psi$，$\tau=0.005$。另一种做法是每 1000 个梯度步做一次 hard copy（App E）。
-- **动作边界**（App C Eq.20–21）：$\mathbf a=\tanh(\mathbf u)$（逐元素），$\mathbf u\in\mathbb R^D$ 服从无界 Gaussian，密度记为 $\mu(\mathbf u|\mathbf s)$（原文符号：这里 $\mu$ 是密度而不是均值；均值、协方差由网络输出，Sec 4.2），于是 $\log\pi(\mathbf a|\mathbf s)=\log\mu(\mathbf u|\mathbf s)-\sum_{i=1}^D\log(1-\tanh^2(u_i))$。不做这个修正，熵项就算错了。
+- **Twin Q**：两个 Q 独立训练，在 **V 的 target（Eq.6）和策略梯度（Eq.13）** 里取 $\min(Q_{\theta_1},Q_{\theta_2})$，做法沿用 TD3，用来抑制 overestimation。作者说单个 Q 也能学会 21 维 Humanoid，但两个 Q 会"显著加快"训练。
+- **Target 网络**：只对 V 维护目标网络，用 EMA 更新 $\bar\psi\leftarrow\tau\psi+(1-\tau)\bar\psi$， $\tau=0.005$。另一种做法是每 1000 个梯度步做一次 hard copy（App E）。
+- **动作边界**（App C Eq.20–21）： $\mathbf a=\tanh(\mathbf u)$（逐元素）， $\mathbf u\in\mathbb R^D$ 服从无界 Gaussian，密度记为 $\mu(\mathbf u|\mathbf s)$（原文符号：这里 $\mu$ 是密度而不是均值；均值、协方差由网络输出，Sec 4.2），于是 $\log\pi(\mathbf a|\mathbf s)=\log\mu(\mathbf u|\mathbf s)-\sum_{i=1}^D\log(1-\tanh^2(u_i))$。不做这个修正，熵项就算错了。
 
 **4. 训练与推理流程**（Algorithm 1 + Table 1）：每轮先用 $\mathbf a\sim\pi_\phi$ 与环境交互并把 transition 存入 $\mathcal D$，再从 $\mathcal D$ 采 minibatch，依次更新 $\psi\to\theta_{1,2}\to\phi\to\bar\psi$。默认 1 个 env step 对应 1 个 gradient step。评估时取策略均值作为确定性动作，作为 MAP action 的近似（Sec 5.2, Fig 3a）。
-**超参**（Table 1）：所有任务共用 Adam、lr $3\cdot10^{-4}$、$\gamma=0.99$、buffer $10^6$。所有网络都是 2 层 × 256 单元、ReLU，minibatch 256，$\tau=0.005$。只有 reward scale 按环境单独设置（Table 2）：Hopper、Walker2d、HalfCheetah、Ant 为 5，Humanoid-v1（17 维动作）为 20，Humanoid (rllab)（21 维动作）为 10。
+**超参**（Table 1）：所有任务共用 Adam、lr $3\cdot10^{-4}$、 $\gamma=0.99$、buffer $10^6$。所有网络都是 2 层 × 256 单元、ReLU，minibatch 256， $\tau=0.005$。只有 reward scale 按环境单独设置（Table 2）：Hopper、Walker2d、HalfCheetah、Ant 为 5，Humanoid-v1（17 维动作）为 20，Humanoid (rllab)（21 维动作）为 10。
 
 ## 关键实验与证据
 
@@ -62,7 +62,7 @@ $$\pi_{\text{new}}=\arg\min_{\pi'\in\Pi}\mathrm D_{\mathrm{KL}}\Big(\pi'(\cdot|\
 - **但 Fig 4（App E）更值得细看**：deterministic 变体和 hard-target SAC "在除 Humanoid (rllab) 以外的所有任务上都与 SAC 相当"。目测在 Walker2d、Ant 和 Humanoid-v1 上，deterministic 变体的末端回报甚至高于 SAC（Walker2d 约 4.4k vs 3.7k，Ant 约 6.5k vs 6.0k，Humanoid-v1 约 7.2k vs 6.4k）。也就是说，SAC 相对 DDPG 的大部分优势，很可能来自 twin Q 和这套实现细节；**熵的独特贡献主要体现在最难任务的稳定性上**。
 - **评估方式（Fig 3a, Ant）**：用均值动作做确定性评估，回报高于随机评估。
 - **Reward scale（Fig 3b, Ant，取 1/3/10/30/100）**：scale 太小时，策略接近均匀分布，无法利用 reward（scale=1 的曲线几乎是平的）；scale 太大时，前期学得快，但策略过早变成近似确定性，陷入局部最优。作者称 reward scale 是**唯一需要调的超参**。
-- **$\tau$（Fig 3c，取 0.0001/0.001/0.01/0.1）**：$\tau=0.1$ 时训练失稳，return 掉到负值；$\tau=0.0001$ 时学得慢。作者说可用区间很宽，所有任务统一取 0.005。hard-target 变体在每个 env step 做多个 gradient step（Table 1：非 humanoid 任务 4 步，humanoid 1 步）时效果更好，但计算量也更大。
+- **$\tau$（Fig 3c，取 0.0001/0.001/0.01/0.1）**： $\tau=0.1$ 时训练失稳，return 掉到负值； $\tau=0.0001$ 时学得慢。作者说可用区间很宽，所有任务统一取 0.005。hard-target 变体在每个 env step 做多个 gradient step（Table 1：非 humanoid 任务 4 步，humanoid 1 步）时效果更好，但计算量也更大。
 
 ## 局限与论文没说的
 
@@ -102,7 +102,7 @@ $$\pi_{\text{new}}=\arg\min_{\pi'\in\Pi}\mathrm D_{\mathrm{KL}}\Big(\pi'(\cdot|\
 4. 熵、KL 散度，以及 I-projection（reverse KL）为什么是 mode-seeking。
 5. Q-learning 的 overestimation bias，以及 double Q / TD3 的 clipped double Q。
 6. 随机变量换元公式（tanh squashing 下的 log-density）。
-7. （加分项）control as inference 与 soft Q-learning：为什么最优最大熵策略满足 $\pi^*\propto\exp(Q^*)$。
+7. （加分项）control as inference 与 soft Q-learning：为什么最优最大熵策略满足 $\pi^{\ast}\propto\exp(Q^{\ast})$。
 
 ## 复现可行性
 
@@ -110,12 +110,12 @@ $$\pi_{\text{new}}=\arg\min_{\pi'\in\Pi}\mathrm D_{\mathrm{KL}}\Big(\pi'(\cdot|\
 - **环境**：MuJoCo 加 Gym -v1 环境和 rllab Humanoid。现在的 Gymnasium v4/v5 与 v1 在观测和 reward 定义上有差别，回报数值不能和论文直接比。
 - **算力**：论文**没有报告**硬件和训练时间。可以确定的只有：网络是 2×256 的 MLP，CPU 就能跑；训练步数为 Hopper/Walker2d 1M、HalfCheetah/Ant 3M、Humanoid 10M（Fig 1 横轴）；默认每个 env step 做 1 次 batch 256 的梯度更新（Table 1）。所以瓶颈在串行的步数上，而不在显存。
 - **最小可复现实验**：用 PyTorch 自己写一个 SAC v1（V + target V + twin Q + tanh-Gaussian，约几百行），在 HalfCheetah 上跑 1M 步、5 个 seed，超参按 Table 1，reward scale 取 5，每 1000 步用均值动作评估一次。另外做两组对照：① 把 reward scale 扫到 {1, 5, 30}，验证 Fig 3b 里"太小时接近均匀、太大时过早确定性"的现象；② 去掉熵项、改用固定高斯噪声的 deterministic 变体，看它是否像 Fig 4 那样在 HalfCheetah 上与 SAC 相当。如果还有余力，再在 Humanoid 上跑 SAC 和 deterministic 变体各 5 个 seed，检验 Fig 2 的方差差异。
-- **预计难点**：tanh 下 log-prob 的数值稳定性（$1-\tanh^2$ 接近 0 时要加 eps，或者改用 softplus 形式）；reward scale 与环境版本耦合，需要重新调；V 的 target 要用当前策略的新采样动作，而不是 buffer 里的动作，这里容易写错；训练曲线和评估曲线（均值动作）的口径要和论文一致。
+- **预计难点**：tanh 下 log-prob 的数值稳定性（ $1-\tanh^2$ 接近 0 时要加 eps，或者改用 softplus 形式）；reward scale 与环境版本耦合，需要重新调；V 的 target 要用当前策略的新采样动作，而不是 buffer 里的动作，这里容易写错；训练曲线和评估曲线（均值动作）的口径要和论文一致。
 
 ## 自测问题
 
 1. 为什么 Eq.4 里的配分函数 $Z(\mathbf s)$ 可以忽略？把 $J_\pi$ 写成 $\mathbb E[\log\pi-Q]$，和 DDPG 的 actor 目标相比，多了什么、少了什么？
-2. 从 Eq.18 推出 $Q^{\pi_{\text{new}}}\ge Q^{\pi_{\text{old}}}$，每一步用到了什么？$|\mathcal A|<\infty$ 用在了哪里？如果 $\Pi$ 不包含 $\exp(Q)/Z$，定理保证的"最优"指什么？
-3. $J_V$ 中的动作从哪里采样，$J_Q$ 中的 $(\mathbf s,\mathbf a)$ 又从哪里采样？为什么这样整个算法能完全 off-policy，而 PPO 不能复用旧数据？
+2. 从 Eq.18 推出 $Q^{\pi_{\text{new}}}\ge Q^{\pi_{\text{old}}}$，每一步用到了什么？ $|\mathcal A|<\infty$ 用在了哪里？如果 $\Pi$ 不包含 $\exp(Q)/Z$，定理保证的"最优"指什么？
+3. $J_V$ 中的动作从哪里采样， $J_Q$ 中的 $(\mathbf s,\mathbf a)$ 又从哪里采样？为什么这样整个算法能完全 off-policy，而 PPO 不能复用旧数据？
 4. 为什么 reward scale 等价于 $1/\alpha$？结合 soft value 的定义，解释 Fig 3b 中 scale 过小和过大时各自的失败机制。
 5. twin Q 的 $\min$ 用在哪两个更新里？Fig 4 中 deterministic 变体在 5/6 个任务上与 SAC 相当，这对"熵带来性能提升"这一结论意味着什么？

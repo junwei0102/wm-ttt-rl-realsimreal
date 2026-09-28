@@ -24,8 +24,8 @@ SIMPLER 不去搭 full-fidelity digital twin，只做一个"够真"的仿真：�
 ### 1. 评测指标：Pearson $r$ + MMRV
 
 Pearson $r$ 有两个缺陷（§III-B，Fig. 3）：
-- 它只衡量线性关系。即使排名完全正确，只要不是线性关系，$r$ 也会被压低。
-- 它对取值范围不敏感。几个真实成功率很接近的策略，只要被真实评测的噪声扰动一下，$r$ 就可能剧烈变化。
+- 它只衡量线性关系。即使排名完全正确，只要不是线性关系， $r$ 也会被压低。
+- 它对取值范围不敏感。几个真实成功率很接近的策略，只要被真实评测的噪声扰动一下， $r$ 就可能剧烈变化。
 
 Spearman 只看名次，忽略了排错的两个策略在真实成功率上差多少。于是作者提出 **Mean Maximum Rank Violation**（`source/sections/03_problem_statement.tex` Eq. 1–2）：
 
@@ -48,19 +48,19 @@ $$\text{MMRV}(R,R_{\mathcal S})=\frac1N\sum_{i=1}^N\max_{1\le j\le N}\text{RankV
 
 ### 2. 缩小控制 gap：离线 system identification（§IV-A）
 
-做法是把 demonstration 的动作序列 $\{\mathbf a_i\}$ 在仿真里 **open-loop 回放**，然后比较仿真末端位姿 $(\mathbf x'_i,R'_i)$ 和真实记录的 $(\mathbf x_i,R_i)$。待辨识的是关节 PD 参数，即刚度 $\mathbf p$ 和阻尼 $\mathbf d$（`source/sections/04_approach.tex` Eq. 3–5）：
+做法是把 demonstration 的动作序列 $\lbrace\mathbf a_i\rbrace$ 在仿真里 **open-loop 回放**，然后比较仿真末端位姿 $(\mathbf x'_ i,R'_ i)$ 和真实记录的 $(\mathbf x_i,R_i)$。待辨识的是关节 PD 参数，即刚度 $\mathbf p$ 和阻尼 $\mathbf d$（`source/sections/04_approach.tex` Eq. 3–5）：
 
-$$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
-\mathcal L_{\text{rot}}=\frac1T\sum_i\arcsin\!\Big(\tfrac{1}{2\sqrt2}\|R_i-R'_i\|_F\Big),\quad
+$$\mathcal L_{\text{transl}}=\frac1T\sum_i\Vert\mathbf x_i-\mathbf x'_ i\Vert_2,\quad
+\mathcal L_{\text{rot}}=\frac1T\sum_i\arcsin\negthinspace\Big(\tfrac{1}{2\sqrt2}\Vert R_i-R'_ i\Vert_F\Big),\quad
 \mathcal L_{\text{sysid}}=\mathcal L_{\text{transl}}+\mathcal L_{\text{rot}}$$
 
-旋转项可以这样理解（我的推导，论文没写）：设 $\theta$ 是 $R^\top R'$ 的旋转角，则 $\|R-R'\|_F^2=6-2\,\mathrm{tr}(R^\top R')=4-4\cos\theta=8\sin^2(\theta/2)$。代回去得到 $\arcsin(\cdot)=\theta/2$，也就是说 $\mathcal L_{\text{rot}}$ 等于 geodesic 角误差的一半，单位是弧度。
+旋转项可以这样理解（我的推导，论文没写）：设 $\theta$ 是 $R^\top R'$ 的旋转角，则 $\Vert R-R'\Vert_F^2=6-2\thinspace\mathrm{tr}(R^\top R')=4-4\cos\theta=8\sin^2(\theta/2)$。代回去得到 $\arcsin(\cdot)=\theta/2$，也就是说 $\mathcal L_{\text{rot}}$ 等于 geodesic 角误差的一半，单位是弧度。
 
 优化方式：先把搜索范围归一化到 $[0,1]$，跑 simulated annealing；取 loss 最低的参数，缩小搜索范围再跑一轮，共 3 轮。数据只用开源数据集里"一小部分"轨迹，论文没给具体条数和迭代数。
 
 仿真控制器要尽量模仿真实控制器（附录 Alg. 1/2）：
-- **Google Robot**：delta EE 动作经 IK 得到目标关节角，再用 Ruckig 做带速度/加速度/jerk 约束的时间最优规划。arm 的约束是 1.5/2.0/50.0，gripper 是 1.0/7.0/50.0；$H_{\text{sim}}=501$，$H_{\text{ctrl}}=3$ Hz。
-- **WidowX**：delta EE 动作经 IK 后直接设关节位置目标（不经 Ruckig 规划）；$H_{\text{sim}}=500$，$H_{\text{ctrl}}=5$ Hz。
+- **Google Robot**：delta EE 动作经 IK 得到目标关节角，再用 Ruckig 做带速度/加速度/jerk 约束的时间最优规划。arm 的约束是 1.5/2.0/50.0，gripper 是 1.0/7.0/50.0； $H_{\text{sim}}=501$， $H_{\text{ctrl}}=3$ Hz。
+- **WidowX**：delta EE 动作经 IK 后直接设关节位置目标（不经 Ruckig 规划）； $H_{\text{sim}}=500$， $H_{\text{ctrl}}=5$ Hz。
 - 模拟 Google Robot 时，PhysX 的 PGS（Projected Gauss-Seidel）solver 在抓取时会出现穿模，所以在 SAPIEN 和 Isaac Sim 的后端都改用 TGS（Temporal Gauss-Seidel）solver（附录 C-B）。
 
 ### 3. 缩小视觉 gap：Visual Matching 和 Variant Aggregation（§IV-B）
@@ -85,7 +85,7 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
 - **物理参数**：密度查 GPT-4 或 Google，摩擦按材质设定。
 - **位姿对齐**：通过对齐桌子或柜子的边缘来调相机和机器人位姿。
 - **最耗人工的一步**：articulated 柜子需要手工建模。
-- **速度**：用 SAPIEN 仿真，单张 RTX 4090、$640\times512$ 分辨率下每秒 3.5k 仿真步。按 500 Hz 仿真频率换算，比真实评测快 7×。
+- **速度**：用 SAPIEN 仿真，单张 RTX 4090、 $640\times512$ 分辨率下每秒 3.5k 仿真步。按 500 Hz 仿真频率换算，比真实评测快 7×。
 - **评测流程**：`env.reset()` 后，策略读取合成图像和指令，输出 delta 动作；控制器执行后由环境判定是否成功（Fig. 2 给出 Gym 接口）。Octo 带 diffusion head，结果对 3 个 seed 取平均。
 
 ## 关键实验与证据
@@ -113,8 +113,8 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
 | Open/Close Drawer | 0.055 / 0.915 | 0.321 / 0.737 |
 | Drawer + Apple | 0.000 / 0.969 | 0.148 / 0.235 |
 
-- 在 Bridge 上，VisMatch 对 8 列（grasp 和 success 各 4 列）取平均，得到 MMRV 0.014、$r=0.890$。唯一排错的是 carrot 任务的 success 列，MMRV 0.111（Table V）。
-- Table I 把 3 个 Google 任务平均：validation MSE 为 MMRV 0.375、$r=0.308$；VarAgg 为 0.143 / 0.778；VisMatch 为 0.056 / 0.924。
+- 在 Bridge 上，VisMatch 对 8 列（grasp 和 success 各 4 列）取平均，得到 MMRV 0.014、 $r=0.890$。唯一排错的是 carrot 任务的 success 列，MMRV 0.111（Table V）。
+- Table I 把 3 个 Google 任务平均：validation MSE 为 MMRV 0.375、 $r=0.308$；VarAgg 为 0.143 / 0.778；VisMatch 为 0.056 / 0.924。
 - 在 Bridge 上，用 validation MSE 排序的 Pearson 甚至是负的。例如 spoon 任务 $-0.951$，eggplant 任务 $-1.000$（Table XII）。
 - 结论：**VisMatch 优于 VarAgg**。VarAgg 的视觉分布与真实差得更远，对视觉敏感的策略（Octo-Base、RT-1 15%）会被过度惩罚。
 
@@ -122,7 +122,7 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
 - 设置：选两个 RT-1 策略（训练时有/无 data augmentation），沿 5 个轴施加偏移：background、lighting、distractors、table texture、camera pose。
 - 指标：计算 $\Delta\text{Success}=\frac12\sum_{k=1}^2(\text{Success}(\text{shift},k)-\text{Success}(\text{base}))$（`source/sections/06_experiments.tex` Eq. 6）。
 - 对照：真实侧的数据来自 Xie et al. 2023（Table VI 最后一列）。
-- 结果：两个任务平均后，MMRV/$r$ 在无 aug 策略上为 0.000/0.831，在有 aug 策略上为 0.041/0.970。
+- 结果：两个任务平均后，MMRV/ $r$ 在无 aug 策略上为 0.000/0.831，在有 aug 策略上为 0.041/0.970。
 - 在仿真和真实中，camera pose 与 table texture 的影响都最大。
 - 纯色桌面和花纹桌面带来的性能下降：真实为 4% vs 25%，仿真为 2% vs 24%。
 
@@ -139,12 +139,12 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
   - 三者都做：MMRV 0.050，差距 0.136。
   - 作者的假设是：场景各部分外观**不一致**比整体都不匹配更糟。
 - **物理参数**（Table X）：
-  - coke can 质量取 10–80 g、gripper 摩擦取 0.25–2.0 时，MMRV 恒为 0.031，$r$ 在 0.957–0.990 之间。
-  - 柜子关节摩擦取 0.0125–0.20 时，$r$ 在 0.903–0.941 之间。
+  - coke can 质量取 10–80 g、gripper 摩擦取 0.25–2.0 时，MMRV 恒为 0.031， $r$ 在 0.957–0.990 之间。
+  - 柜子关节摩擦取 0.0125–0.20 时， $r$ 在 0.903–0.941 之间。
   - 这些参数改变成功率的幅度 ≤15%。
 - **换仿真器**（Table XI，Fig. 10）：换成 Isaac Sim + VarAgg，Coke Can 为 0.064 / 0.973，Move Near 为 0.053 / 0.865。
-- **单任务策略**（Table XIII）：加入只用 coke can 数据训练的 RT-1（真实 0.680、仿真 0.403）后，MMRV 为 0.027、$r=0.959$。
-- **绝对值对齐**（Table XIV）：对 VisMatch 做 Kruskal-Wallis 检验。Google 的 coke-can 平均列和 Move Near 列里，6 个策略中各有 3 个的仿真与真实差异显著（$p<0.05$）；Bridge 只有 1 列出现 1 个显著。
+- **单任务策略**（Table XIII）：加入只用 coke can 数据训练的 RT-1（真实 0.680、仿真 0.403）后，MMRV 为 0.027、 $r=0.959$。
+- **绝对值对齐**（Table XIV）：对 VisMatch 做 Kruskal-Wallis 检验。Google 的 coke-can 平均列和 Move Near 列里，6 个策略中各有 3 个的仿真与真实差异显著（ $p<0.05$）；Bridge 只有 1 列出现 1 个显著。
 
 ## 局限与论文没说的
 
@@ -194,7 +194,7 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
 
 1. **generalist manipulation policy**：RT-1 / Octo 的输入输出（图像 + 语言 → delta EE 动作）、Open X-Embodiment 和 BridgeData V2。
 2. **sim-to-real gap 的两根轴**：dynamics（控制）和 visual（外观）；domain randomization 与 system identification 的区别。
-3. **机器人控制基础**：PD 控制器的刚度和阻尼、IK、带 jerk 约束的轨迹规划、$SO(3)$ 上的旋转误差。
+3. **机器人控制基础**：PD 控制器的刚度和阻尼、IK、带 jerk 约束的轨迹规划、 $SO(3)$ 上的旋转误差。
 4. **排名与相关性统计**：Pearson、Spearman、Kruskal-Wallis 检验。
 5. **仿真与渲染工具**：SAPIEN/PhysX 的基本用法、分割 mask 合成，以及可微渲染（nvdiffrast）做位姿对齐。
 
@@ -209,7 +209,7 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
 - **真实侧**：没有 Google Robot 或 WidowX 就无法复现。可以直接用 Table IV/V 里的真实成功率作参照。
 - **最小实验**：
   1. 在 Bridge VisMatch 的 4 个任务上跑 RT-1-X、Octo-Base、Octo-Small。Octo 取 3 个 seed，每个任务 24 个初始配置。
-  2. 用 Table V 的真实成功率，按 Eq. 1–2 计算 MMRV 和 Pearson，目标是复现 MMRV ≈ 0.014、$r\approx0.890$ 的量级。
+  2. 用 Table V 的真实成功率，按 Eq. 1–2 计算 MMRV 和 Pearson，目标是复现 MMRV ≈ 0.014、 $r\approx0.890$ 的量级。
   3. 在 Google Pick Coke Can 上做两个消融：把背景换成 ReplicaCAD 场景（去掉 green screen），或者把 PD 参数换回非 SysID 的值，观察 MMRV 是否像 Table II/III 那样变差（注意 Table III 原本是在 drawer 任务上做的，coke can 上的视觉消融论文没报告）。
 - **预计难点**：
   - TF 和 JAX 的 CUDA 版本冲突。
@@ -219,7 +219,7 @@ $$\mathcal L_{\text{transl}}=\frac1T\sum_i\|\mathbf x_i-\mathbf x'_i\|_2,\quad
 ## 自测问题
 
 1. 给出 4 个策略的真实和仿真成功率，手算 MMRV。为什么要用 $|R_i-R_j|$ 加权，并对每个 $i$ 取 $\max_j$？Spearman 在 Fig. 3 最左两幅图上为什么给出同样的分数？
-2. SysID 的训练信号从哪里来？为什么用 open-loop 回放 demonstration 动作，而不是闭环跑策略？证明 $\arcsin(\|R-R'\|_F/2\sqrt2)$ 等于半个旋转角。这一步辨识了哪些量，又刻意没辨识哪些？
+2. SysID 的训练信号从哪里来？为什么用 open-loop 回放 demonstration 动作，而不是闭环跑策略？证明 $\arcsin(\Vert R-R'\Vert_F/2\sqrt2)$ 等于半个旋转角。这一步辨识了哪些量，又刻意没辨识哪些？
 3. domain randomization 在 sim-to-real 训练中很有效，可为什么在 real-to-sim 评测里，Variant Aggregation 输给了 Visual Matching？请从"被测策略没见过随机化分布"这个角度解释。
 4. Table III 中，只做 green screen 加 drawer 纹理匹配，MMRV 反而从 0.087 升到 0.142。作者给出的解释是什么？你会设计什么实验来验证？
 5. 如果直接在 SIMPLER 里对某个 VLA 做 RL，把仿真成功率刷高，论文的哪些证据还能支持"真实成功率也会提高"，哪些不能？

@@ -43,7 +43,7 @@
 | A | 2020 | [Tent](./tent/notes.md)（ICLR 2021） | 去掉了对训练流程和 proxy task 的依赖，即 fully test-time adaptation。只用预测 entropy，只更新 BN 的统计量和 $\gamma/\beta$（不到 1% 的参数）。ImageNet-C 上 59.5% → 44.0% | 依赖大 batch 和 i.i.d. 数据；会放大自信的错误（MNIST→SVHN 从 71.3% 升到 79.8%）；长时程连续适应没有测 |
 | A | 2020 | [PAD](../05_intersections/pad/notes.md)（ICLR 2021，05 交叉线） | 把 TTT 搬到 vision-based RL。部署时没有 reward，就用 inverse dynamics 自监督损失每步在线更新 policy encoder，全程不 reset；36 个测试环境中 31 个有提升 | 自监督任务与控制目标的对齐仍靠手工选择（forward dynamics 在特征空间有塌缩的平凡解，所以选了 inverse） |
 | A | 2021–2023 | MEMO（2110.09506）、CoTTA（2203.13591）、SAR（2302.12400）、TTT-MAE（2209.07522）、TTT on video streams（2307.05014），本项目未收录 | 依次处理：单样本 TTA；目标域持续变化时的 error accumulation 与 forgetting；wild 场景（小 batch、混合 shift）下的 collapse；用 MAE 重建代替 rotation；把 TTT 扩展到按时间到达的视频帧 | 研究对象仍以分类和分割为主，与序列建模、LLM 两条线基本隔开 |
-| B | 2023–2024 | Learning to (Learn at Test Time)（2310.13807，未收录）→ [TTT layers](./ttt-layers/notes.md)（ICML 2025） | 把"测试时在自监督损失上走梯度步"做成序列建模层：RNN 的隐状态就是模型权重 $W$；自监督任务（$\theta_K/\theta_V/\theta_Q$）在 outer loop 里端到端学出；mini-batch TTT 加 dual form 让计算可以并行。长上下文、FLOPs 对齐时，perplexity 优于 Mamba | 只评测了 perplexity；小 mini-batch（$b=16$）的硬件利用率低；TTT-MLP 的 wall-clock 代价高 |
+| B | 2023–2024 | Learning to (Learn at Test Time)（2310.13807，未收录）→ [TTT layers](./ttt-layers/notes.md)（ICML 2025） | 把"测试时在自监督损失上走梯度步"做成序列建模层：RNN 的隐状态就是模型权重 $W$；自监督任务（ $\theta_K/\theta_V/\theta_Q$）在 outer loop 里端到端学出；mini-batch TTT 加 dual form 让计算可以并行。长上下文、FLOPs 对齐时，perplexity 优于 Mamba | 只评测了 perplexity；小 mini-batch（ $b=16$）的硬件利用率低；TTT-MLP 的 wall-clock 代价高 |
 | B | 2025 | [Titans](./titans/notes.md)（v1 于 2024-12 提交） | 给 fast-weight memory 加上 momentum（past surprise）和 weight decay 形式的 forget gate，memory 改用深层 MLP；与 attention 的组合给出 MAC、MAG、MAL 三种方式 | 没有官方代码，chunk 大小等超参没有报告；deep memory 是否必要存在争议 |
 | B | 2025 | [One-Minute Video](./ttt-one-minute-video/notes.md)（CVPR 2025） | 第一次把 TTT-MLP 插进预训练的 DiT：attention 只处理 3 秒片段内，TTT 层负责跨片段的全局记忆，生成 63 秒的多场景视频，人评 Elo 平均比第二名高 34 分 | 生成是 non-causal 的，也没有 action 条件；训练折合 256 张 H100 × 50 h；没有组件级消融 |
 | B | 2025 | [LaCT](./lact/notes.md) | 16–64 token 的 mini-batch 让 GPU 利用率很低（H100 上 TTT-MLP 只有 31 TFLOPS）。LaCT 改用 2K–1M token 的大 chunk，纯 PyTorch 就能进入 compute-bound（515 TFLOPS），于是可以用大的 SwiGLU fast weight（最多占参数的 40%）并用 Muon 更新；覆盖 NVS、LM、AR 视频扩散 | 观测逐步到达（流式、闭环控制）时 chunk 天然很小，效率论证不再成立；检索仍明显落后 full attention |
@@ -105,7 +105,7 @@
 | 0 / 12 | A Survey on Self-Improving Test-Time Intelligence（2609.01679） | 2026（Machine Intelligence Research） | survey | 用 Update（是否改写可写状态）和 Compute（额外推理算力）两根轴统一 TTA、TTL、TTS；给出两条边界判据：KV cache 和 RNN hidden state 的演化不算 TTL，只在离线 pipeline 里生效的算 training-time amortization | 无；paper list：mr-eggplant/awesome_test_time_intelligence | [notes](./survey-test-time-intelligence/notes.md) |
 | 1 | Test-Time Training with Self-Supervision（1909.13231） | 2019（ICML 2020） | foundational | 监督任务与 rotation prediction 共享 extractor，做 joint training；测试时先在单个样本的自监督损失上更新 extractor，再预测；梯度内积为正时这一步有益 | [ttt_cifar_release](https://github.com/yueatsprograms/ttt_cifar_release)、[ttt_imagenet_release](https://github.com/yueatsprograms/ttt_imagenet_release) | [notes](./ttt-self-supervised/notes.md) |
 | 2 | Tent（2006.10726） | 2020（ICLR 2021） | foundational | 不用 source 数据，也不改训练，测试时最小化预测 entropy，只更新 BN 统计量和 $\gamma/\beta$；更新全部参数反而从未超过 source 模型 | [DequanWang/tent](https://github.com/DequanWang/tent)（已 archived） | [notes](./tent/notes.md) |
-| 3 | Learning to (Learn at Test Time): RNNs with Expressive Hidden States（2407.04620） | 2024（ICML 2025） | foundational | 隐状态就是模型 $f$ 的权重 $W$，每个 token 在可学习的多视角重建损失上走一步 GD；这样得到 TTT-Linear 和 TTT-MLP，线性、batch GD、$W_0=0$ 时等价于 linear attention | [ttt-lm-jax](https://github.com/test-time-training/ttt-lm-jax)（训练）、[ttt-lm-pytorch](https://github.com/test-time-training/ttt-lm-pytorch)（教程） | [notes](./ttt-layers/notes.md) |
+| 3 | Learning to (Learn at Test Time): RNNs with Expressive Hidden States（2407.04620） | 2024（ICML 2025） | foundational | 隐状态就是模型 $f$ 的权重 $W$，每个 token 在可学习的多视角重建损失上走一步 GD；这样得到 TTT-Linear 和 TTT-MLP，线性、batch GD、 $W_0=0$ 时等价于 linear attention | [ttt-lm-jax](https://github.com/test-time-training/ttt-lm-jax)（训练）、[ttt-lm-pytorch](https://github.com/test-time-training/ttt-lm-pytorch)（教程） | [notes](./ttt-layers/notes.md) |
 | 4 | Titans（2501.00663） | 2025 | milestone | 用带 momentum 和 forget gate 的 surprise 梯度，在测试时写入深层 MLP 长时记忆，再与 attention（短时记忆）和 persistent memory 组合成 MAC、MAG、MAL | 无官方代码；社区版 lucidrains/titans-pytorch | [notes](./titans/notes.md) |
 | 5 | One-Minute Video Generation with TTT（2504.05298） | 2025（CVPR 2025） | milestone | 在 CogVideo-X 5B 中插入带门控、双向的 TTT-MLP 层：attention 只在 3 秒片段内做，TTT 层负责全局记忆；能生成 63 秒多场景视频 | [ttt-video-dit](https://github.com/test-time-training/ttt-video-dit)（TTT-MLP 训练只支持 H100） | [notes](./ttt-one-minute-video/notes.md) |
 | 6 | LaCT: Test-Time Training Done Right（2505.23884） | 2025（ICLR 2026） | milestone | 把 fast weight 的更新单位改成 2K–1M token 的大 chunk，用来换取硬件利用率、大的非线性 state 和 Muon；chunk 内的局部结构交给 window attention | [a1600012888/LaCT](https://github.com/a1600012888/LaCT) | [notes](./lact/notes.md) |
@@ -144,7 +144,7 @@
   - [ ] （读 PAD 用）视觉 RL 的基本配方与 [SAC](../04_rl/sac/notes.md)；inverse dynamics 与 forward dynamics 的区别，以及在特征空间做 forward 预测为什么有塌缩的平凡解
 - **要读的笔记**：[TTT](./ttt-self-supervised/notes.md) → [Tent](./tent/notes.md) → 跨主题的 [PAD](../05_intersections/pad/notes.md)
 - **读完应能回答**
-  1. 在两层线性 toy model 里推出 $\mathrm{sign}(\eta^*)=\mathrm{sign}\langle\nabla l_m,\nabla l_s\rangle$。为什么 Theorem 1 的条件在测试时无法检验？
+  1. 在两层线性 toy model 里推出 $\mathrm{sign}(\eta^{\ast})=\mathrm{sign}\langle\nabla l_m,\nabla l_s\rangle$。为什么 Theorem 1 的条件在测试时无法检验？
   2. 推导 $\partial H/\partial z_j=-p_j(\log p_j+H)$，用它解释 Tent 为什么会放大"自信的错误"（MNIST→SVHN 71.3% → 79.8%）。
   3. TTT 为什么必须改训练，Tent 为什么不用？两者各自付出了什么代价？
   4. batch size 降到 1、数据是时间相关的单帧流（机器人部署就是这样）时，Tent 的 normalization 和 transformation 两步分别会出什么问题？
@@ -153,7 +153,7 @@
 ### 阶段 2：TTT 作为序列建模层
 
 - **前置知识 checklist**
-  - [ ] self-attention、KV cache，以及 linear attention 的递归形式（$S_t=S_{t-1}+v_tk_t^\top$）
+  - [ ] self-attention、KV cache，以及 linear attention 的递归形式（ $S_t=S_{t-1}+v_tk_t^\top$）
   - [ ] RNN/SSM、Mamba 2；DeltaNet 的 delta rule；Gated DeltaNet 的 forget gate
   - [ ] fast weights / fast weight programmers
   - [ ] meta-learning 与 bi-level optimization：inner loop / outer loop、gradients of gradients（MAML）
@@ -165,10 +165,10 @@
   - [ ] （第 6 题用）动作条件、逐帧自回归的 world model 是什么，见 01 线的 [Dreamer](../01_world_model/dreamer/notes.md)、[DIAMOND](../01_world_model/diamond/notes.md)
 - **要读的笔记**：[TTT layers](./ttt-layers/notes.md) → [Titans](./titans/notes.md) → [One-Minute Video](./ttt-one-minute-video/notes.md) → [LaCT](./lact/notes.md) → [TTT-E2E](./ttt-e2e/notes.md) → [KV-binding ≈ linear attention](./ttt-kv-linear-attention/notes.md)。最后一篇要在读完前面几篇之后批判性地读，它用的术语 TTT-KVB 来自 TTT-E2E。
 - **读完应能回答**
-  1. 线性 $f$、batch GD、$W_0=0$、$\eta=1/2$ 时，为什么 TTT layer 等价于 linear attention？换成 mini-batch GD 后，是哪一项打破了等价，这一项为什么带来更强的表达力？
-  2. 在 Titans 的 memory 更新中，$\eta_t$（momentum）和 $\alpha_t$（forget）分别在处理什么问题？为什么 $\eta_t=\alpha_t=0$ 时它就退化为 delta rule？
+  1. 线性 $f$、batch GD、 $W_0=0$、 $\eta=1/2$ 时，为什么 TTT layer 等价于 linear attention？换成 mini-batch GD 后，是哪一项打破了等价，这一项为什么带来更强的表达力？
+  2. 在 Titans 的 memory 更新中， $\eta_t$（momentum）和 $\alpha_t$（forget）分别在处理什么问题？为什么 $\eta_t=\alpha_t=0$ 时它就退化为 delta rule？
   3. 用 LaCT 的 Eq.3 说明 $b=16$ 为什么是 memory-bound。为什么 LaCT 在 LM 上要求 window ≥ chunk？
-  4. TTT-E2E 和 TTT-naive（dynamic evaluation）的训练目标差在哪？$t<1$K、还没做任何 TTT 步时，TTT-E2E 的 loss 为什么已经低于 full attention？
+  4. TTT-E2E 和 TTT-naive（dynamic evaluation）的训练目标差在哪？ $t<1$ K、还没做任何 TTT 步时，TTT-E2E 的 loss 为什么已经低于 full attention？
   5. KV-binding 一文的梯度上升实验在 Frobenius 损失下为什么几乎是必然结果（见该笔记"笔者的批判性阅读"第 1 条）？要真正区分"记忆"和"linear attention"两种解释，应该做什么实验？
   6. One-Minute Video 的 non-causal mini-batch TTT 和双向扫描，搬到逐帧、带 action 条件的自回归 world model 上会出什么问题？
 
@@ -179,13 +179,13 @@
   - [ ] LoRA / QLoRA
   - [ ] self-consistency / majority voting；pass@k、maj@k、avg@k
   - [ ] policy gradient、PPO、GRPO 的组内 advantage 归一化；RLVR 与 rule-based reward（见 04 线的 [PPO](../04_rl/ppo/notes.md)、[DeepSeek-R1](../04_rl/deepseek-r1/notes.md)）
-  - [ ] 指数倾斜 / log-sum-exp、$\mathrm{KL}(q\|u)=\log N-H(q)$
+  - [ ] 指数倾斜 / log-sum-exp、 $\mathrm{KL}(q\Vert u)=\log N-H(q)$
   - [ ] MCTS / PUCT（AlphaZero）
 - **要读的笔记**：[ARC TTT](./ttt-arc-fewshot/notes.md) → [TTRL](./ttrl/notes.md) → [TTT-Discover](./ttt-discover/notes.md)
 - **读完应能回答**
   1. Direct I/O 和 leave-one-out ICL 两种训练样本各长什么样？为什么在 ARC（18 对 29 题）和 BBH（51.5 对 57.8）上 Direct I/O 都更差？
   2. 标签错误时，TTRL 的奖励准确率为什么等于 $1-(m+g)$？它为什么会随训练下降？
-  3. GRPO 的组内归一化下，二元 majority reward 的正负 advantage 怎样随 $m$ 变化？$m\to1$ 时会发生什么？
+  3. GRPO 的组内归一化下，二元 majority reward 的正负 advantage 怎样随 $m$ 变化？ $m\to1$ 时会发生什么？
   4. 在 TTT-Discover 的 Table 8 里，没有 reuse 时 entropic 训练（5274.03 μs）和 Best-of-N（5352.36 μs）几乎一样。reuse 解决了哪个问题，entropic objective 又解决了哪个？
   5. TTT、TTRL、TTT-Discover 分别为每个测试实例构造了什么学习问题？最终产出的是参数、预测还是解？
 
@@ -226,11 +226,11 @@
 
 | 方法 | fast weight $f_W$ | inner loss | 更新粒度 | 状态管理 | outer loop 学什么 | 关键证据 | 代价或短板 |
 |---|---|---|---|---|---|---|---|
-| [TTT layers](./ttt-layers/notes.md) | TTT-Linear（方阵 $W$）/ TTT-MLP（两层） | 多视角重建 ‖f(θ_K x; W) − θ_V x‖²（KVB） | mini-batch $b=16$，dual form | LN + residual，learnable $W_0$ 与 $\eta(x)$，没有显式遗忘 | $\theta_K,\theta_V,\theta_Q,W_0$ 和 lr 头 | 125M 模型上 mini-batch（$b$ 从 T 改为 16）让 ppl 下降 1.70（Table 1 中贡献最大的一步）；32k 上下文下优于 Mamba | 只评测 perplexity；TTT-MLP 的 decode 明显更慢 |
-| [Titans](./titans/notes.md) | 深层 MLP memory（$L_\mathcal M\ge1$） | MSE ‖M(k) − v‖²（KVB） | chunk 内在 chunk 起点处求梯度，momentum 用 parallel scan | momentum $\eta_t$、forget gate $\alpha_t$、写入强度 $\theta_t$ 都随 token 变化 | 同上，加上各个 gate，再与 attention 组合成 MAC、MAG、MAL | S-NIAH-W@16K：LMM 80.6、MAC 95.2，TTT 为 0.0；去掉 deep memory 后长上下文从 92.68 降到 85.34 | 没有官方代码；$b$ 等超参没有报告；deep memory 越深吞吐越低 |
-| [One-Minute Video](./ttt-one-minute-video/notes.md) | TTT-MLP | 同 TTT layers | non-causal mini-batch $b=64$，双向扫描 | tanh 门控，$\alpha$ 初始化为 0.1 | 在 CogVideo-X 5B 上分 5 个阶段微调 | 63 秒视频的 Elo：1033 对 SWA 999；18 秒时 Gated DeltaNet 反而最好（1032 对 1004） | 推理是 local attention 的 2.5×，训练是 3.8×；non-causal，没有 action 条件 |
+| [TTT layers](./ttt-layers/notes.md) | TTT-Linear（方阵 $W$）/ TTT-MLP（两层） | 多视角重建 ‖f(θ_K x; W) − θ_V x‖²（KVB） | mini-batch $b=16$，dual form | LN + residual，learnable $W_0$ 与 $\eta(x)$，没有显式遗忘 | $\theta_K,\theta_V,\theta_Q,W_0$ 和 lr 头 | 125M 模型上 mini-batch（ $b$ 从 T 改为 16）让 ppl 下降 1.70（Table 1 中贡献最大的一步）；32k 上下文下优于 Mamba | 只评测 perplexity；TTT-MLP 的 decode 明显更慢 |
+| [Titans](./titans/notes.md) | 深层 MLP memory（ $L_\mathcal M\ge1$） | MSE ‖M(k) − v‖²（KVB） | chunk 内在 chunk 起点处求梯度，momentum 用 parallel scan | momentum $\eta_t$、forget gate $\alpha_t$、写入强度 $\theta_t$ 都随 token 变化 | 同上，加上各个 gate，再与 attention 组合成 MAC、MAG、MAL | S-NIAH-W@16K：LMM 80.6、MAC 95.2，TTT 为 0.0；去掉 deep memory 后长上下文从 92.68 降到 85.34 | 没有官方代码； $b$ 等超参没有报告；deep memory 越深吞吐越低 |
+| [One-Minute Video](./ttt-one-minute-video/notes.md) | TTT-MLP | 同 TTT layers | non-causal mini-batch $b=64$，双向扫描 | tanh 门控， $\alpha$ 初始化为 0.1 | 在 CogVideo-X 5B 上分 5 个阶段微调 | 63 秒视频的 Elo：1033 对 SWA 999；18 秒时 Gated DeltaNet 反而最好（1032 对 1004） | 推理是 local attention 的 2.5×，训练是 3.8×；non-causal，没有 action 条件 |
 | [LaCT](./lact/notes.md) | SwiGLU，最多占参数的 40% | 负点积 $-f_W(k)^\top v$ | 大 chunk，2K–1M token | L2 weight norm + Muon（momentum 可选） | QKV 投影、lr 头、初始 fast weights | H100 上 515 TFLOPS，原版 TTT-MLP 为 31；state 越大越好 | 3B 模型 S-NIAH@32K 为 48.0，full attention 为 91.2；线性 LaCT 在 LM 上输给 GLA-SWA |
-| [TTT-E2E](./ttt-e2e/notes.md) | 后 1/4 个 block 的 MLP，外加一个静态 MLP | 网络末端的 next-token CE（端到端） | $b=1$K，配 SWA $k=8$K（要求 $k\ge b$） | 静态 MLP 保存预训练知识，减轻遗忘 | 通过 gradients of gradients 学 $W_0$ 在内的全部参数 | 3B 模型在 8K–128K 上的 loss 与 full attention 同步；128K 时 prefill 快 2.7× | NIAH@128K 只有 0.03–0.06；8K 训练时慢 3.4× |
+| [TTT-E2E](./ttt-e2e/notes.md) | 后 1/4 个 block 的 MLP，外加一个静态 MLP | 网络末端的 next-token CE（端到端） | $b=1$ K，配 SWA $k=8$ K（要求 $k\ge b$） | 静态 MLP 保存预训练知识，减轻遗忘 | 通过 gradients of gradients 学 $W_0$ 在内的全部参数 | 3B 模型在 8K–128K 上的 loss 与 full attention 同步；128K 时 prefill 快 2.7× | NIAH@128K 只有 0.03–0.06；8K 训练时慢 3.4× |
 | [KV-binding 视角](./ttt-kv-linear-attention/notes.md) | 分析对象：最后一层线性、无 bias 的 TTT-KVB | Frobenius / 点积（实验只覆盖这一种） | — | — | — | 只更新最后一层（V1）在三个任务上都最好；并行形式使 TTT 层吞吐最多提高约 4×，端到端训练加速 1.19× | 不覆盖 MSE 损失和 TTT-E2E；没有 seed 方差 |
 
 **笔者的一句话总结**：6.1 里的方法真正让模型在部署后变了，风险在于信号是否可靠、状态会不会漂移；6.2 里的方法测试时只改写序列内部的 fast weights，风险在于它到底比 linear attention 多学到了什么。
@@ -239,7 +239,7 @@
 
 1. **TTT 层到底是在"学习"，还是 learned linear attention？** [KV-binding 一文](./ttt-kv-linear-attention/notes.md)列出了几条证据：inner loop 改成梯度上升并重训后指标基本持平（有时略好）；推理时多走 inner steps 反而变差；只更新最后一层效果最好。它据此把 [LaCT](./lact/notes.md)、[Titans](./titans/notes.md)、[One-Minute Video](./ttt-one-minute-video/notes.md) 背后"更深的 fast weight = 更强记忆"的叙事重新解释为 linear attention。但笔记指出，在 Frobenius 损失下梯度上升与梯度下降几乎必然等价，这组实验区分不了两种解释；MSE 损失（Titans、TTT-MLP）下的情况还没有检验；[TTT-E2E](./ttt-e2e/notes.md) 用端到端 loss，也不在定理覆盖范围内。这个争议还带出一个定义问题：[综述](./survey-test-time-intelligence/notes.md)把 TTT-Layer 的 $W_t$ 算作 TTL，却把普通 hidden state 的演化排除在外；可如果 TTT-KVB 在代数上等价于 linear attention 的状态演化，这条边界就变得模糊了（笔者观察）。
 2. **压缩与精确召回不可兼得。** TTT-E2E 在 loss 上随上下文长度追平了 full attention，NIAH@128K 却只有 0.03–0.06；LaCT 3B 的 S-NIAH@32K 为 48.0，full attention 为 91.2。Titans 的 S-NIAH 很高，但只测到 16K，而且没有官方代码可以核对。world model 的长程一致性需要哪一种记忆，目前没有实验回答。
-3. **更新粒度与在线延迟。** [TTT layers](./ttt-layers/notes.md) 显示 $b$ 越小效果越好；LaCT 为了硬件效率改用大 chunk；TTT-E2E 用 $b=1$K 加 SWA 折中。机器人闭环控制时观测一步一步到达，$b$ 天然很小，LaCT 的效率论证就不成立了；One-Minute Video 还是 non-causal 的。在流式、因果的场景下怎样选粒度，还是空白。
+3. **更新粒度与在线延迟。** [TTT layers](./ttt-layers/notes.md) 显示 $b$ 越小效果越好；LaCT 为了硬件效率改用大 chunk；TTT-E2E 用 $b=1$ K 加 SWA 折中。机器人闭环控制时观测一步一步到达， $b$ 天然很小，LaCT 的效率论证就不成立了；One-Minute Video 还是 non-causal 的。在流式、因果的场景下怎样选粒度，还是空白。
 4. **长时程部署下的稳定性与 collapse。** Tent 没有测连续适应；TTT-Online 所说的"forgetting 无害"前提是整条流同分布；PAD 把 episode 拉长到 10 倍，7 个任务中 6 个仍有提升，但只看了单个 episode 内部。[TTRL](./ttrl/notes.md) 的 Lucky Hit 会随训练自我削弱：奖励准确率 $1-(m+g)$ 随 majority ratio 上升而下降。综述转述了 entropy minimization 长期运行会"先涨后跌"，却没有讨论物理机器人上不可回滚的更新该怎么监控、怎么回滚。
 5. **测试时信号怎么选、怎么对齐。** TTT 的 Theorem 1 要求梯度内积为正，但这个条件依赖未知的 $y$，测试时无法检验。Tent 的 entropy 在连续动作 policy 上没有良好定义，而且与 [SAC](../04_rl/sac/notes.md) 的 maximum entropy 目标、[PPO](../04_rl/ppo/notes.md) 的 entropy bonus 方向相反。PAD 放弃 forward dynamics 是为了避开 representation collapse。TTRL 的"多数"在连续动作上没有定义。ARC TTT 的增益有一半以上依赖可逆增广（去掉增广少解 16 题）。对 world model 来说，转移预测误差是最自然的信号，但它与控制目标是否对齐，要先测。
 6. **算力口径不统一，缺少公平对照。** 综述承认 Compute 轴只是示意，没有统一度量。[ARC TTT](./ttt-arc-fewshot/notes.md) 没有和同等 FLOPs 下的多采样做比较。[TTT-Discover](./ttt-discover/notes.md) 的消融显示，没有 state reuse 时再好的训练目标也只相当于 Best-of-N，说明"学习"要在搜索结构之上才起作用。TTRL 每题 64 条 rollout、跑几十个 episode，成本远高于推理时投票。什么时候该更新参数、什么时候该只加推理算力，还没有公认的比较协议。
@@ -289,15 +289,15 @@
 - **理由**：这是序列层分支里机制最清楚、成本最低的一组可复现结果。一个 toy 就能同时看到两件事：TTT-naive（dynamic evaluation）和 TTT-E2E（meta-learning）之间的差距，以及 mini-batch 带来的锯齿。这两点直接关系到"TTT 层能不能充当 world model 的长程记忆"。配合几项 CPU 上的数值检查，可以把 TTT layers 的 Theorem 1 和 KV-binding 争议落到自己能验证的代码上。
 - **算力**：CPU 检查在 1 小时以内（笔记估计）。TTT-E2E 的 toy 按附录 A 设置：2 个 block、dim 384、6 个 head、上下文 128、DCLM 数据、batch 为 125K tokens。笔记作者估计单卡可行。
 - **最小实验**
-  1. CPU/numpy：实现 TTT layers 的 primal 与 dual form，检查两者输出一致；验证 $W_0=0$、$\eta=1/2$、batch GD 时与 linear attention 一致（Theorem 1）；验证在 Frobenius 损失下，"对 $v$ 做梯度上升"等价于"对 $-v$ 做梯度下降"（KV-binding 笔记"笔者的批判性阅读"第 1 条）。
-  2. 用官方 `test-time-training/e2e` 仓库复现 Figure 2 右图的五条曲线：有 attention、无 attention、TTT-naive、TTT-E2E $b=1$、TTT-E2E $b=16$。判据：TTT-naive 只比 bigram 基线好一点；E2E $b=1$ 接近 full attention；$b=16$ 出现锯齿。学习率在 [2e-3, 6e-3] 内按 0.5e-3 步长搜索。
+  1. CPU/numpy：实现 TTT layers 的 primal 与 dual form，检查两者输出一致；验证 $W_0=0$、 $\eta=1/2$、batch GD 时与 linear attention 一致（Theorem 1）；验证在 Frobenius 损失下，"对 $v$ 做梯度上升"等价于"对 $-v$ 做梯度下降"（KV-binding 笔记"笔者的批判性阅读"第 1 条）。
+  2. 用官方 `test-time-training/e2e` 仓库复现 Figure 2 右图的五条曲线：有 attention、无 attention、TTT-naive、TTT-E2E $b=1$、TTT-E2E $b=16$。判据：TTT-naive 只比 bigram 基线好一点；E2E $b=1$ 接近 full attention； $b=16$ 出现锯齿。学习率在 [2e-3, 6e-3] 内按 0.5e-3 步长搜索。
 - **复现后可以提的假设**：把 inner loss 换成 MSE，重做梯度上升实验，补上 KV-binding 一文缺的那项检验；再把 toy 换成 action-conditioned 的序列预测，看端到端 TTT 相对 KVB 的优势在控制序列上是否还在。
 
 ### 9.3 TTRL：Qwen2.5-Math-1.5B 在 MATH-500 上（分支 C 的基准）
 
 - **理由**：这是 test-time RL 最简单的完整实例，算法就是 GRPO 只换了 reward，官方有基于 verl 的代码。它能直接测出伪奖励的质量（标签准确率 vs 奖励准确率）。把 test-time RL 搬到 world model 里做 RL（[WMPO](../05_intersections/wmpo/notes.md)、[World-Gymnast](../05_intersections/world-gymnast/notes.md) 用的都是学出来、会出错的 reward）之前，必须先掌握这套诊断方法。TTT-Discover 依赖付费的 Tinker API，所以排在后面。
 - **算力**：论文只写了 8×A100 80GB，没有报告时长。最小配置是 1.5B 模型、10 个 episode。
-- **最小实验**：GRPO，每题 64 条用于投票、32 条用于训练，温度 1.0，最大长度 3,072，峰值 lr $5\times10^{-7}$（cosine，AdamW）。目标是复现 Table 1 的 32.7 → 73.0，或 Fig.5 中约 30 步内从 ~0.34 升到 ~0.68 的曲线。训练过程中用真标签离线记录 majority ratio $m$、ground-truth ratio $g$、标签准确率和奖励准确率，检验"标签错时 RewardAcc $=1-(m+g)$"。再补做论文缺的投票数 $N\in\{8,16,64\}$ 消融，以及与答案级 entropy minimization 基线的对比。
+- **最小实验**：GRPO，每题 64 条用于投票、32 条用于训练，温度 1.0，最大长度 3,072，峰值 lr $5\times10^{-7}$（cosine，AdamW）。目标是复现 Table 1 的 32.7 → 73.0，或 Fig.5 中约 30 步内从 ~0.34 升到 ~0.68 的曲线。训练过程中用真标签离线记录 majority ratio $m$、ground-truth ratio $g$、标签准确率和奖励准确率，检验"标签错时 RewardAcc $=1-(m+g)$"。再补做论文缺的投票数 $N\in\lbrace8,16,64\rbrace$ 消融，以及与答案级 entropy minimization 基线的对比。
 - **复现后可以提的假设**：在连续动作或 learned evaluator 的场景下，用什么替代 majority voting（多条 rollout 的共识、成功检测器、world model 内的 reward model），并且奖励准确率要在训练全程监控。
 
 **复现之后的第一个项目内实验**（来自[综述笔记](./survey-test-time-intelligence/notes.md)"复现可行性"一节的建议，不是论文内容）：在 DMControl 或 MuJoCo 上训练 latent world model + MPC agent，测试时改变质量或摩擦，比较四组：冻结、只加 compute（更多 MPC 采样或更长 horizon）、只加 update（用转移预测误差在线更新 dynamics）、两者同时用。episodic 和 continual 两种设置分别画 return 与额外算力的曲线，以及长流上的稳定性曲线。单卡可做。

@@ -24,34 +24,34 @@ $$\mathbf z=h(\mathbf s,\mathbf e),\quad \mathbf z'=d(\mathbf z,\mathbf a,\mathb
 
 **2. 模型目标**（Eq.3）。从 buffer 采长度为 $H$ 的子轨迹。令 $\mathbf z_0=h(\mathbf s_0)$，再用 $d$ 沿 replay 里的动作做 latent rollout，每一步都计算损失：
 
-$$\mathcal L(\theta)=\mathbb E_{(\mathbf s,\mathbf a,r,\mathbf s')_{0:H}\sim\mathcal B}\Big[\sum_{t=0}^{H}\lambda^t\big(\|\mathbf z'_t-\mathrm{sg}(h(\mathbf s'_t))\|_2^2+\mathrm{CE}(\hat r_t,r_t)+\mathrm{CE}(\hat q_t,q_t)\big)\Big],\quad q_t=r_t+\gamma\bar Q(\mathbf z'_t,p(\mathbf z'_t))$$
+$$\mathcal L(\theta)=\mathbb E_{(\mathbf s,\mathbf a,r,\mathbf s')_ {0:H}\sim\mathcal B}\Big[\sum_{t=0}^{H}\lambda^t\big(\Vert\mathbf z'_ t-\mathrm{sg}(h(\mathbf s'_ t))\Vert_2^2+\mathrm{CE}(\hat r_t,r_t)+\mathrm{CE}(\hat q_t,q_t)\big)\Big],\quad q_t=r_t+\gamma\bar Q(\mathbf z'_ t,p(\mathbf z'_ t))$$
 
-- 第一项是 joint-embedding prediction（BYOL 式）：用 stop-grad 的真实下一状态编码作为预测目标。$h,d,R,Q$ 联合优化（Sec 3.1），第二、三项的梯度也会回传到 encoder 和 dynamics，所以潜空间由 latent 预测、reward、value 三项共同塑形（control-centric），而不是由观测重建塑形。
-- $\bar Q$ 是 $Q$ 的 EMA（momentum 0.99）。$Q$ 是 5 个成员的 ensemble，第一层后加 1% Dropout。TD-target 取随机抽出的两个 $\bar Q$ 中较小的那个（REDQ 式）。
+- 第一项是 joint-embedding prediction（BYOL 式）：用 stop-grad 的真实下一状态编码作为预测目标。 $h,d,R,Q$ 联合优化（Sec 3.1），第二、三项的梯度也会回传到 encoder 和 dynamics，所以潜空间由 latent 预测、reward、value 三项共同塑形（control-centric），而不是由观测重建塑形。
+- $\bar Q$ 是 $Q$ 的 EMA（momentum 0.99）。 $Q$ 是 5 个成员的 ensemble，第一层后加 1% Dropout。TD-target 取随机抽出的两个 $\bar Q$ 中较小的那个（REDQ 式）。
 - reward 和 value 都在 **log 变换空间里做离散回归**：分 101 个 bin，以 $r_t,q_t$ 为 soft target 算 cross-entropy。这样损失量级就和任务的 reward 量级无关，这是跨任务共用一套超参数的关键之一。latent 一项仍用 MSE，因为 SimNorm 已经把它归一化了，而离散化高维 $\mathbf z$ 的代价太高（App A）。
-- 系数（Table 8）：joint-embedding 20，reward 0.1，value 0.1。$\lambda=0.5$，$H=3$。论文训练子序列长度和规划 horizon 用的是同一个符号 $H$。按论文的记号，$\mathbf z'_t$ 指 Eq.2 中 dynamics 的输出；TD-target 具体用哪个 next latent 需要对照代码确认。
+- 系数（Table 8）：joint-embedding 20，reward 0.1，value 0.1。 $\lambda=0.5$， $H=3$。论文训练子序列长度和规划 horizon 用的是同一个符号 $H$。按论文的记号， $\mathbf z'_ t$ 指 Eq.2 中 dynamics 的输出；TD-target 具体用哪个 next latent 需要对照代码确认。
 
 **3. Policy prior**（Eq.4）：maximum-entropy 的随机策略，梯度只更新 $p$，latent 沿 $d$ 展开：
 
-$$\mathcal L_p(\theta)=\mathbb E_{(\mathbf s,\mathbf a)_{0:H}\sim\mathcal B}\Big[\sum_{t=0}^{H}\lambda^t\big[\alpha Q(\mathbf z_t,p(\mathbf z_t))-\beta\mathcal H(p(\cdot|\mathbf z_t))\big]\Big]$$
+$$\mathcal L_p(\theta)=\mathbb E_{(\mathbf s,\mathbf a)_ {0:H}\sim\mathcal B}\Big[\sum_{t=0}^{H}\lambda^t\big[\alpha Q(\mathbf z_t,p(\mathbf z_t))-\beta\mathcal H(p(\cdot|\mathbf z_t))\big]\Big]$$
 
-$\beta=10^{-4}$；$\alpha$ 通过 moving statistics 自动调节（Sec 3.1；Table 8 记为 policy prior loss norm. = moving (5%, 95%) percentiles），以便在不同数据集和训练阶段之间平衡 Q 项和熵项、防止熵过早坍缩。注意：论文说这个式子是要 maximize 的，但字面上 $-\beta\mathcal H$ 的符号和 max-entropy 的意图相反，应理解为鼓励熵，实现以代码为准。$p$ 有两个用途：给规划器提供候选动作序列，以及在 TD-target 中代替对动作的 max。
+$\beta=10^{-4}$； $\alpha$ 通过 moving statistics 自动调节（Sec 3.1；Table 8 记为 policy prior loss norm. = moving (5%, 95%) percentiles），以便在不同数据集和训练阶段之间平衡 Q 项和熵项、防止熵过早坍缩。注意：论文说这个式子是要 maximize 的，但字面上 $-\beta\mathcal H$ 的符号和 max-entropy 的意图相反，应理解为鼓励熵，实现以代码为准。 $p$ 有两个用途：给规划器提供候选动作序列，以及在 TD-target 中代替对动作的 max。
 
 **4. SimNorm**（Eq.5）：把 $\mathbf z$ 切成 $L$ 段，每段 $V$ 维，每段各自做 softmax，投到单纯形上：
 
 $$\mathbf z^\circ=[\mathbf g_1,\dots,\mathbf g_L],\quad \mathbf g_i=\frac{e^{\mathbf z_{i:i+V}/\tau}}{\sum_{j=1}^{V}e^{\mathbf z_{i:i+V}/\tau}}$$
 
-（原文 Eq.5 左式写作 $[\mathbf g_i,\dots,\mathbf g_L]$，此处按含义写成 $\mathbf g_1$。）$V=8$，$\tau=1$。5M 模型的 latent 是 512 维，由 Table 8 推得 $L=64$。SimNorm 可以看作 VQ-VAE 那种"一组 categorical"表示的 soft 版本（App H）：范数有界，所以能抑制梯度爆炸；同时偏向稀疏，但不强制离散。注意 App H 说 $\tau\to\infty$ 得到 one-hot、$\tau=0$ 得到均匀分布，但按 Eq.5 的 $e^{\mathbf z/\tau}$ 写法，实际情况正好相反（$\tau\to0$ 趋于 one-hot，$\tau\to\infty$ 趋于均匀）。中间层统一用 Linear→LayerNorm→Mish。
+（原文 Eq.5 左式写作 $[\mathbf g_i,\dots,\mathbf g_L]$，此处按含义写成 $\mathbf g_1$。） $V=8$， $\tau=1$。5M 模型的 latent 是 512 维，由 Table 8 推得 $L=64$。SimNorm 可以看作 VQ-VAE 那种"一组 categorical"表示的 soft 版本（App H）：范数有界，所以能抑制梯度爆炸；同时偏向稀疏，但不强制离散。注意 App H 说 $\tau\to\infty$ 得到 one-hot、 $\tau=0$ 得到均匀分布，但按 Eq.5 的 $e^{\mathbf z/\tau}$ 写法，实际情况正好相反（ $\tau\to0$ 趋于 one-hot， $\tau\to\infty$ 趋于均匀）。中间层统一用 Linear→LayerNorm→Mish。
 
-**5. MPPI 规划**（Eq.6）：每个决策步求一个时变的对角高斯 $\mathcal N(\mu,\sigma^2)$，$\mu,\sigma\in\mathbb R^{H\times m}$：
+**5. MPPI 规划**（Eq.6）：每个决策步求一个时变的对角高斯 $\mathcal N(\mu,\sigma^2)$， $\mu,\sigma\in\mathbb R^{H\times m}$：
 
-$$\mu^*,\sigma^*=\arg\max_{(\mu,\sigma)}\mathbb E_{\mathbf a_{t:t+H}\sim\mathcal N(\mu,\sigma^2)}\Big[\gamma^H Q(\mathbf z_{t+H},\mathbf a_{t+H})+\sum_{h=t}^{H-1}\gamma^h R(\mathbf z_h,\mathbf a_h)\Big]$$
+$$\mu^{\ast},\sigma^{\ast}=\arg\max_{(\mu,\sigma)}\mathbb E_{\mathbf a_{t:t+H}\sim\mathcal N(\mu,\sigma^2)}\Big[\gamma^H Q(\mathbf z_{t+H},\mathbf a_{t+H})+\sum_{h=t}^{H-1}\gamma^h R(\mathbf z_h,\mathbf a_h)\Big]$$
 
-流程：population size 为 512，policy prior samples 为 24（Table 8）；Sec 3.2 只说"a fraction of action sequences"来自 $p$，没有明确这 24 条是否计入 512。在潜空间展开后，估计 return（前 $H$ 步 reward 加末端 Q bootstrap）。取 64 条 elite，按加权平均更新 $\mu,\sigma$（temperature 0.5，std 夹在 [0.05, 2] 之间）。迭代 6 次，$|\mathcal A|\ge 20$ 时迭代 8 次。最后从 $\mathcal N(\mu^*_t,\sigma^*_t)$ 采出第一个动作执行。下一步用上一步的解平移 1 格做 warm-start，不用 momentum（Table 8，Sec 3.2）。有了 Q 的 bootstrap，$H=3$ 的局部轨迹优化才能近似完整的 RL 目标，而不只是 $H$ 步内的最优。
+流程：population size 为 512，policy prior samples 为 24（Table 8）；Sec 3.2 只说"a fraction of action sequences"来自 $p$，没有明确这 24 条是否计入 512。在潜空间展开后，估计 return（前 $H$ 步 reward 加末端 Q bootstrap）。取 64 条 elite，按加权平均更新 $\mu,\sigma$（temperature 0.5，std 夹在 [0.05, 2] 之间）。迭代 6 次， $|\mathcal A|\ge 20$ 时迭代 8 次。最后从 $\mathcal N(\mu^{\ast}_ t,\sigma^{\ast}_ t)$ 采出第一个动作执行。下一步用上一步的解平移 1 格做 warm-start，不用 momentum（Table 8，Sec 3.2）。有了 Q 的 bootstrap， $H=3$ 的局部轨迹优化才能近似完整的 RL 目标，而不只是 $H$ 步内的最优。
 
-**6. 多任务扩展**（Sec 3.3）：五个组件都以一个可学习的 task embedding $\mathbf e$ 为条件（96 维，$\ell_2$ 范数 $\le 1$）。观测和动作都 zero-pad 到最大维度。policy prior 的预测和熵只在有效动作维上计算，规划时也只在有效维上采样（action masking）。多任务训练时 batch 取 1024，其余超参数不变。
+**6. 多任务扩展**（Sec 3.3）：五个组件都以一个可学习的 task embedding $\mathbf e$ 为条件（96 维， $\ell_2$ 范数 $\le 1$）。观测和动作都 zero-pad 到最大维度。policy prior 的预测和熵只在有效动作维上计算，规划时也只在有效维上采样（action masking）。多任务训练时 batch 取 1024，其余超参数不变。
 
-**7. 流程与"无需调参"的来源**：online 阶段先收集 $S=\max(5T,1000)$ 步数据（Eq.8）再开始更新。之后循环：MPPI 选动作 → 写入 buffer → 按 UTD=1、batch 256 均匀采样，更新 Eq.3 和 Eq.4 → 更新 EMA。推理时只需编码当前观测，然后做 MPPI。discount 按 episode 长度用启发式设定：$\gamma=\mathrm{clip}(\frac{T/5-1}{T/5},[0.95,0.995])$（Eq.7），DMControl 的 $T=500$ 时 $\gamma=0.99$。
+**7. 流程与"无需调参"的来源**：online 阶段先收集 $S=\max(5T,1000)$ 步数据（Eq.8）再开始更新。之后循环：MPPI 选动作 → 写入 buffer → 按 UTD=1、batch 256 均匀采样，更新 Eq.3 和 Eq.4 → 更新 EMA。推理时只需编码当前观测，然后做 MPPI。discount 按 episode 长度用启发式设定： $\gamma=\mathrm{clip}(\frac{T/5-1}{T/5},[0.95,0.995])$（Eq.7），DMControl 的 $T=500$ 时 $\gamma=0.99$。
 
 ## 关键实验与证据
 
@@ -68,7 +68,7 @@ $$\mu^*,\sigma^*=\arg\max_{(\mu,\sigma)}\mathbb E_{\mathbf a_{t:t+H}\sim\mathcal
   - 激活函数：Mish 与 ELU/ReLU 性能相当，但梯度更平滑（Fig 20）。
   - 作者的结论：各项改动都有贡献，而且单任务和多任务场景下各项的相对重要性一致。
 - **Visual RL**（Fig 10）：换成 4 层卷积 encoder，输入 64×64 图像，加 random shift 增强。在 10 个 DMControl 任务上，超参数不变，与 DrQ-v2、DreamerV3 相当。
-- **Test-time regularization**（App J，Table 10）：规划时减去不确定性惩罚 $u_t=c\cdot\mathrm{avg}(\hat q_{1:N})\cdot\mathrm{std}(\hat q_{1:N})$（Eq.9）。对 19M 模型的 80 任务得分，不加正则 56.54，$c=0.001$ 为 58.14，$c=0.01$ 为 62.01，$c=0.1$ 为 44.13。正文的其他实验都没有使用这个正则。
+- **Test-time regularization**（App J，Table 10）：规划时减去不确定性惩罚 $u_t=c\cdot\mathrm{avg}(\hat q_{1:N})\cdot\mathrm{std}(\hat q_{1:N})$（Eq.9）。对 19M 模型的 80 任务得分，不加正则 56.54， $c=0.001$ 为 58.14， $c=0.01$ 为 62.01， $c=0.1$ 为 44.13。正文的其他实验都没有使用这个正则。
 
 ## 局限与论文没说的
 
@@ -76,9 +76,9 @@ $$\mu^*,\sigma^*=\arg\max_{(\mu,\sigma)}\mathbb E_{\mathbf a_{t:t+H}\sim\mathcal
 
 **我读出来的**：
 1. **全部在仿真里完成，而且以 state 输入为主**：没有真机实验，没有 sim-to-real，视觉部分只有 10 个任务、64×64 分辨率。
-2. **Markov 与确定性假设**：encoder 只看单帧 $\mathbf s$，没有历史或 recurrent state（不同于 RSSM）；$d$ 是确定性的。因此部分可观测的情况，比如未知的摩擦和质量，也就是 sim-to-real 关心的那类参数，无法靠历史在线推断；多模态的随机转移也表示不了。
+2. **Markov 与确定性假设**：encoder 只看单帧 $\mathbf s$，没有历史或 recurrent state（不同于 RSSM）； $d$ 是确定性的。因此部分可观测的情况，比如未知的摩擦和质量，也就是 sim-to-real 关心的那类参数，无法靠历史在线推断；多模态的随机转移也表示不了。
 3. **implicit 模型不能当 simulator 用**：没有 decoder，就生成不了观测，也不能像 UniSim/Ctrl-World 那样拿来评估或训练其他 policy。潜空间是为特定 reward 塑形的，reward 一换，表示可能就缺失需要的信息。
-4. **"一套超参数"其实包含若干启发式规则**：$\gamma$ 和 seed steps 依赖已知的 episode 长度，$|\mathcal A|\ge20$ 时规划多迭代 2 次。另外，baseline 的配置（DreamerV3 固定用 S 尺寸和 UTD 512；SAC/TD-MPC 沿用原论文的超参数）是否对每个 domain 都公平，论文没有讨论。
+4. **"一套超参数"其实包含若干启发式规则**： $\gamma$ 和 seed steps 依赖已知的 episode 长度， $|\mathcal A|\ge20$ 时规划多迭代 2 次。另外，baseline 的配置（DreamerV3 固定用 S 尺寸和 UTD 512；SAC/TD-MPC 沿用原论文的超参数）是否对每个 domain 都公平，论文没有讨论。
 5. **评测口径有不一致之处**：19M 模型、80 任务的默认配置，在 Table 1 中是 57.1，在 Fig 9/18 中是 54.2，在 Table 10 中是 56.54，论文没有解释（可能是训练时长或批次不同），所以只能在同一张图内部比较。Fig 5 caption 写 Humanoid 的动作空间是 $\mathbb R^{21}$，Table 2 写的是 24。结论都只基于 3 个 seed。
 6. **成本没算全**：Table 1 只统计了多任务训练本身，不包括产生 545M transitions 所需的 240 次单任务训练；而且这些数据来自 TD-MPC2 自己的 buffer，分布对它有利。单任务训练的算力和墙钟时间，论文都没有给出数字（App A 只定性地说 wall-time 与 TD-MPC 相当）。
 7. **推理开销**：每个控制步要做 6–8 轮、每轮约 512 条序列（population size，Table 8）的潜空间 rollout，外加 Q ensemble 计算。论文只说规划吞吐量提升了约 2×，没有给出控制频率或延迟，而这在真机上很关键。

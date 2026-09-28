@@ -19,7 +19,7 @@ PAD（Policy Adaptation during Deployment）把 [TTT](../../02_test_time_trainin
 
 ## 核心方法
 
-**1. 网络切分**（`source/method.tex` §3.1，Fig.1）。policy 参数 $\theta=(\theta_e,\theta_a)$，$\pi(\mathbf s;\theta)=\pi_a(\pi_e(\mathbf s))$，其中 $\pi_e$ 是 feature extractor，$\pi_a$ 是基于这些特征输出动作分布的 controller。自监督 head $\pi_s(\theta_s)$ 接在 $\pi_e$ 的输出上，整体呈 Y 形。DMControl 和机器人任务中，$\pi_e$ 是 8 层卷积；CRLMaze 中是 6 层；所有卷积层都是 32 个 filter（`appendix.tex` §F）。两个 head 结构相同，都是 3 层卷积加若干全连接层。全连接层的数量正文写 4 层（`experiments.tex` "Network details"），附录写 3 层（`appendix.tex` §F），前后不一致。
+**1. 网络切分**（`source/method.tex` §3.1，Fig.1）。policy 参数 $\theta=(\theta_e,\theta_a)$， $\pi(\mathbf s;\theta)=\pi_a(\pi_e(\mathbf s))$，其中 $\pi_e$ 是 feature extractor， $\pi_a$ 是基于这些特征输出动作分布的 controller。自监督 head $\pi_s(\theta_s)$ 接在 $\pi_e$ 的输出上，整体呈 Y 形。DMControl 和机器人任务中， $\pi_e$ 是 8 层卷积；CRLMaze 中是 6 层；所有卷积层都是 32 个 filter（`appendix.tex` §F）。两个 head 结构相同，都是 3 层卷积加若干全连接层。全连接层的数量正文写 4 层（`experiments.tex` "Network details"），附录写 3 层（`appendix.tex` §F），前后不一致。
 
 **2. 自监督任务**。inverse dynamics model（IDM）在特征空间里预测两帧之间的动作（`method.tex` Eq.1）：
 
@@ -47,7 +47,7 @@ $$\mathbf a_t=\pi(\mathbf s_t;\theta(t)),\quad \theta(t)=(\theta_e(t),\theta_a)$
 - 实现细节（§F）：没有 memory，只用最新观测；每步只做 1 次梯度更新；batch 由最新观测的 32 个 random crop 副本组成，这类增强同时起正则作用。IDM 的 $\mathbf s_t$ 和 $\mathbf s_{t+1}$ 各自用不同的 crop。执行动作时输入用 center crop。CRLMaze 的测试期学习率是 1e-5，训练期是 1e-4（Table 12）。DMControl 的测试期学习率论文没有单独列出。
 - 测试时冻结 $\pi_s$、只更新 $\pi_e$，效果差别可以忽略（Table 9）。默认两者一起更新，因为反正要算梯度。
 
-**5. 为什么这样能帮到 RL**。在白板上可以这么推：$\pi_a$ 冻结，所以只有在"最小化 $L$ 让 $\pi_e$ 往回调"的同时 $J$ 也下降时，这一步才有用。作者自己的说法是，辅助任务的"features (and consequently gradients) need to be sufficiently correlated with the primary RL task"（§4.2）。这正是 TTT 论文里 gradient correlation 条件 $\langle\nabla l_m,\nabla l_s\rangle>0$ 在 RL 中的版本。IDM 直接把观测和动作连起来，所以更贴近 motor control 的需要；rotation 只看观测，更贴近 scene understanding。
+**5. 为什么这样能帮到 RL**。在白板上可以这么推： $\pi_a$ 冻结，所以只有在"最小化 $L$ 让 $\pi_e$ 往回调"的同时 $J$ 也下降时，这一步才有用。作者自己的说法是，辅助任务的"features (and consequently gradients) need to be sufficiently correlated with the primary RL task"（§4.2）。这正是 TTT 论文里 gradient correlation 条件 $\langle\nabla l_m,\nabla l_s\rangle>0$ 在 RL 中的版本。IDM 直接把观测和动作连起来，所以更贴近 motor control 的需要；rotation 只看观测，更贴近 scene understanding。
 
 ## 关键实验与证据
 
@@ -63,7 +63,7 @@ $$\mathbf a_t=\pi(\mathbf s_t;\theta(t)),\quad \theta(t)=(\theta_e(t),\theta_a)$
   - CURL (PAD) 在多数任务上优于 CURL。
   - Rot (PAD) 只在 4/9 个任务上优于 Rot。
   - IDM 整体最稳。
-  - **offline PAD（O-PAD）**每步更新后就丢弃参数，只能适应单张观测。它明显弱于 online 版，但在 Finger turn_easy（321 对 304）和 Reacher easy（241 对 214）上反而更好。
+  - **offline PAD（O-PAD）** 每步更新后就丢弃参数，只能适应单张观测。它明显弱于 online 版，但在 Finger turn_easy（321 对 304）和 Reacher easy（241 对 214）上反而更好。
 - **与带 reward 的 fine-tune 对比**（Table 10，3 个任务；fine-tune 用部署前在目标域收集的 1/10/100 个 episode，同时更新 $\pi_e$ 和 $\pi_a$）：PAD 的水平落在 1 到 100 个 episode 的 fine-tune 之间，因任务而异。Walker stand 上 PAD 797，高于 100 个 episode 的 784；Cartpole swingup 上 PAD 630，介于 10 个（605）和 100 个（650）之间；Walker walk 上 PAD 468，介于 1 个（395）和 10 个（489）之间。
 - **训练环境本身**（Table 7）：PAD 在 9/9 个任务上都略低于 +IDM，例如 Reacher 从 390 降到 365，Walker walk 从 911 降到 895。作者称之为 "hurts minimally"。DMControl 训练 500k frames（§B）。
 - **CRLMaze**（Table 4，10 个 seed，20 个起点，报告 std. error）：Rot (PAD) 在 4 个环境上全部优于 Rot，例如 Lights 从 −84 升到 312，Walls 从 −206 升到 −74。**反例同样关键**：IDM (PAD) 比 IDM 差很多，Floor 从 −47 跌到 −530，Ceiling 从 166 跌到 −508；在训练环境里也从 585 跌到 −416（Table 8）。

@@ -51,7 +51,7 @@ RL 比监督学习难在三处：
 | 2015 | DDPG（1509.02971） | DQN 不能用于连续动作 | 由 deterministic actor 和 Q 组成的 off-policy actor-critic | actor 与 Q 强耦合，对超参数极其敏感，在 Humanoid 上学不动 |
 | 2017 | **[PPO](./ppo/notes.md)** | TRPO 实现复杂 | 对概率比先 clip 再取 min，得到一阶的 surrogate，同一批 on-policy 数据可以跑 K 个 epoch | on-policy 数据用完即丢，样本效率仍然低；效果依赖大量没写进论文的 code-level trick |
 | 2018 | **[SAC](./sac/notes.md)**（同期有 TD3，1802.09477） | on-policy 样本贵；DDPG 脆弱；soft Q-learning 的收敛依赖近似采样器 | 在 maximum entropy 目标下推导 soft policy iteration，再近似成 off-policy actor-critic：重参数化的 tanh-Gaussian actor、twin Q、target V | 温度（等价于 reward scale）要逐任务调；策略是单峰的；Humanoid 仍要约 10M 步，真机上无法从零训练 |
-| 2020–21 | CQL（2006.04779）→ **[IQL](./iql/notes.md)** | 只有固定数据集时，$\max_{a'}$ 会查询数据里没有的动作，函数近似在这些动作上外推出错并被策略利用 | CQL 压低 OOD 动作的 Q。IQL 用 expectile regression 只在数据内的动作上逼近 max，保留 multi-step DP，再用 AWR 提取策略，全程不查询 OOD 动作 | AWR 本质上是加权 BC，很难超出数据中最好的动作；τ/β 要按领域调；offline-to-online 仍需 1M 个在线步 |
+| 2020–21 | CQL（2006.04779）→ **[IQL](./iql/notes.md)** | 只有固定数据集时， $\max_{a'}$ 会查询数据里没有的动作，函数近似在这些动作上外推出错并被策略利用 | CQL 压低 OOD 动作的 Q。IQL 用 expectile regression 只在数据内的动作上逼近 max，保留 multi-step DP，再用 AWR 提取策略，全程不查询 OOD 动作 | AWR 本质上是加权 BC，很难超出数据中最好的动作；τ/β 要按领域调；offline-to-online 仍需 1M 个在线步 |
 | 2023–24 | RLPD（2302.02948）→ SERL（2401.16013）→ **[HIL-SERL](./hil-serl/notes.md)** | 真机上 sample complexity 高、reward 难以指定、优化不稳定 | RLPD（SAC 加 prior data，prior data 与在线数据对半采样）、success classifier 充当 reward、人类在线干预。干预片段同时写入 demo buffer 和 RL buffer。13 项任务在 1–2.5 h 内达到 100%（timing belt 例外，用了 6 h） | 每个任务都从头训练一个小网络；人力成本没有量化；能否扩展到 VLA 规模未知 |
 | 2024 | **[DPPO](./dppo/notes.md)** | diffusion policy 没有显式似然，PG 无法直接用；Q-learning 类的 diffusion RL 在稀疏 reward 下，微调一开始就掉点甚至崩溃 | 把每一步去噪当成内层 MDP 的一步，嵌进环境 MDP。单步去噪是高斯分布，似然可算，于是可以直接用 PPO 微调；探索是贴着示范流形的结构化探索（on-manifold） | 需要大量 on-policy 样本（Robomimic 3e6–4e7 步，Furniture 7e8–1e9 步），只能在仿真里做；同一环境步的各去噪步共用一个 advantage，信用分配粗 |
 | 2024–25 | GRPO（DeepSeekMath，2402.03300）→ **[DeepSeek-R1](./deepseek-r1/notes.md)** | PPO 需要一个和策略差不多大的 value model，只有 outcome reward 时很难训；neural RM 在大规模 RL 里会被 reward hacking | GRPO 对每题采 G 个回答，用组内 (r−mean)/std 作为 advantage，从而去掉 critic；推理任务只用规则可验证的奖励（RLVR）。R1-Zero 不经 SFT 就学出了长 CoT，AIME 2024 pass@1 从 15.6 升到 77.9 | 要能从同一个 prompt 重复采样（相当于能 reset），verifier 的成本也要近乎为零；组内全对或全错时没有梯度；ratio 是 token 级还是序列级、std 归一化带来的偏差，论文都没交代 |
@@ -117,7 +117,7 @@ RL 比监督学习难在三处：
 ### 阶段 0：共同语言
 
 **前置知识 checklist**
-- [ ] MDP / POMDP、return、折扣 γ、$V$ / $Q$ / advantage $A=Q-V$
+- [ ] MDP / POMDP、return、折扣 γ、 $V$ / $Q$ / advantage $A=Q-V$
 - [ ] Bellman 期望方程与最优方程；value iteration、policy iteration
 - [ ] MC 与 TD、bootstrapping；on-policy 与 off-policy；ε-greedy
 - [ ] policy gradient theorem、score-function（likelihood-ratio）估计、baseline
@@ -142,7 +142,7 @@ RL 比监督学习难在三处：
 
 **读完应能回答**
 1. 用了 experience replay，为什么就必须 off-policy？DQN 2013 版算 target 用的是哪组参数？和 Nature 版有什么不同？
-2. 设 ε=0.2、$\hat A<0$，$r_t=1.5$ 和 $r_t=0.7$ 的样本梯度分别是否为 0？clip 能不能保证 KL ≤ δ？
+2. 设 ε=0.2、 $\hat A<0$， $r_t=1.5$ 和 $r_t=0.7$ 的样本梯度分别是否为 0？clip 能不能保证 KL ≤ δ？
 3. SAC 的 reward scale 为什么等价于 $1/\alpha$？scale 过大和过小时各自怎样失败？
 4. PPO 用 likelihood-ratio 梯度，SAC 用 pathwise（重参数化）梯度。两者对"策略似然可算"和"critic 可微"各有什么要求？（后面 DPPO、π_RL、π\*0.6 走了三条不同的路，根源就在这里。）
 5. 为什么样本便宜时（大规模并行仿真）常用 PPO，样本贵时（真机）常用 SAC 系方法？可对照 [legged-gym](../03_real2sim2real/legged-gym/notes.md) 和 [HIL-SERL](./hil-serl/notes.md)（HIL-SERL 在阶段 2 精读，这里只看它的训练设置）。
@@ -177,7 +177,7 @@ RL 比监督学习难在三处：
 **要读**：[DPPO](./dppo/notes.md) → [DeepSeek-R1](./deepseek-r1/notes.md) → [SimpleVLA-RL](./simplevla-rl/notes.md) → [π_RL](./pi-rl/notes.md) → [π\*0.6](./pi-star-06/notes.md)。原书配读 §3.3.3.2（diffusion policy 上的 PPO）和 §6.2.4（single-turn RL 算法：PPO、GRPO、DAPO、GSPO、RLOO）。
 
 **读完应能回答**
-1. DPPO 为什么把 $a^K\sim\mathcal N(0,I)$ 算作环境的一部分？$\sigma^{\text{exp}}_{\min}$ 和 $\sigma^{\text{prob}}_{\min}$ 分别作用在哪一步？
+1. DPPO 为什么把 $a^K\sim\mathcal N(0,I)$ 算作环境的一部分？ $\sigma^{\text{exp}}_ {\min}$ 和 $\sigma^{\text{prob}}_ {\min}$ 分别作用在哪一步？
 2. 写出 GRPO 的 $A_i$。一组 16 个回答全对时梯度是多少？R1 为什么把 KL 放进 loss，而不是像 PPO 那样当作 per-token reward？
 3. SimpleVLA-RL 为什么必须把 OFT 的"MLP + L1"动作头换成"token 头 + CE"？G=8 时，组内 1 条成功和 7 条成功两种情况下，成功轨迹的 advantage 各是多少？
 4. Flow-Noise 和 Flow-SDE 的 PPO ratio 是在同一个概率对象上算的吗？为什么 K=1 时 SDE rollout 的成功率只有 9.4%？
@@ -217,7 +217,7 @@ RL 比监督学习难在三处：
 | DQN | 对 Q 取 argmax（离散动作），ε-greedy 探索 | off-policy online，replay buffer | Q-learning 的 TD target（取 max） | 没有独立策略 | experience replay、reward clipping（2013 版没有 target network） |
 | PPO | Gaussian / softmax | on-policy online | 学 $V$，用 GAE(λ) 算 advantage | likelihood-ratio PG，对 clipped ratio 做 K 个 epoch | clip ε=0.2，相当于隐式 trust region |
 | SAC | tanh-Gaussian | off-policy online，replay buffer | soft Q / V；twin Q 取 min；V 有 EMA target | 重参数化 pathwise 梯度，最小化 $\mathbb E[\log\pi-Q]$ | 熵正则（等价于 reward scale）、twin Q、target V |
-| IQL | Gaussian（std 与状态无关） | offline，可接 online fine-tune | $V$ 用 expectile 拟合，$Q$ 用 MSE 回归，都只用数据内的 (s,a) | AWR：以 $\exp(\beta(Q-V))$ 加权的 BC | 从不查询 OOD 动作；指数化的 advantage 截断到 100 |
+| IQL | Gaussian（std 与状态无关） | offline，可接 online fine-tune | $V$ 用 expectile 拟合， $Q$ 用 MSE 回归，都只用数据内的 (s,a) | AWR：以 $\exp(\beta(Q-V))$ 加权的 BC | 从不查询 OOD 动作；指数化的 advantage 截断到 100 |
 | HIL-SERL | 连续动作用 Gaussian，夹爪另用 DQN 式 critic | 真机 off-policy online，加 demo buffer（RLPD 对半采样） | SAC 式的 Q 加 target network | SAC actor loss（自适应 α） | prior data 与在线数据对半采样；人类干预；impedance 控制器的 reference limiting 保证安全 |
 | DPPO | diffusion policy，每个去噪步是高斯 | 仿真 on-policy online | $V(s_t)$ 加 GAE（只在环境步上算），再乘 $\gamma_{\text{denoise}}^k$ 分给各去噪步 | 对每个去噪步做 PPO | 按 clip fraction 调 ε；两个 σ 下限截断；只微调最后 K' 个去噪步 |
 | DeepSeek-R1（GRPO） | 自回归 LLM | on-policy，每个 prompt 采 G=16 条 | 不用 critic，用组内 (r−mean)/std | clipped ratio，KL（k3 估计）放进 loss | β=0.001；每 400 步重置 reference model；R1 的推理 RL 阶段 ε=10 |
@@ -356,12 +356,12 @@ RL 比监督学习难在三处：
 - **为什么先做**：PPO 是 DPPO、π_RL、legged-gym、RWM 的优化器，也是 GRPO 的母体。后面任何 on-policy 实验出了问题，都要回到这里判断是算法的问题还是实现的问题。论文本身没有写 code-level trick，自己把这些 trick 逐项开关一遍，是理解 PPO 行为最便宜的方式。
 - **算力**：论文没有报告硬件。2×64 MLP、每个任务 1M 步，单机 CPU 就能跑（笔记的判断）。整组实验是 3 种设置 × 2 个环境 × 3 个 seed。
 - **最小实验**：
-  1. 在现代 MuJoCo 的 Hopper 和 HalfCheetah 上比较三种设置：不加约束、clip ε=0.2、adaptive KL（$d_{targ}=0.01$）。
+  1. 在现代 MuJoCo 的 Hopper 和 HalfCheetah 上比较三种设置：不加约束、clip ε=0.2、adaptive KL（ $d_{targ}=0.01$）。
   2. 严格使用 Table 3 的超参数：T=2048，Adam 3e-4，10 个 epoch，minibatch 64，γ=0.99，λ=0.95，policy 与 value 分开，不加 entropy。
   3. 每次更新记录 approx-KL 和 clip fraction。
-  4. 在第一次更新时，沿 $\theta_{old}\to\theta_{new}$ 插值，复现 Figure 2 中 $L^{CPI}$、$L^{CLIP}$ 和 KL 三条曲线。
+  4. 在第一次更新时，沿 $\theta_{old}\to\theta_{new}$ 插值，复现 Figure 2 中 $L^{CPI}$、 $L^{CLIP}$ 和 KL 三条曲线。
   5. 可选：参照 Murphy 的建议，在 CartPole 上扫 GAE 的 λ∈{0, 0.95, 1}。
-- **怎样算复现成功**：结果定性一致即可。不加约束时 HalfCheetah 会崩溃；$L^{CLIP}$ 在更新点附近达到峰值；clip 不劣于 adaptive KL。Gymnasium 的环境版本和论文用的 `-v1` 不同，绝对数值没法直接比。
+- **怎样算复现成功**：结果定性一致即可。不加约束时 HalfCheetah 会崩溃； $L^{CLIP}$ 在更新点附近达到峰值；clip 不劣于 adaptive KL。Gymnasium 的环境版本和论文用的 `-v1` 不同，绝对数值没法直接比。
 
 ### ② DPPO：生成式策略 RL 的最小闭环（难度 medium）
 
@@ -371,7 +371,7 @@ RL 比监督学习难在三处：
   1. 加载官方预训练的 DP（K=20），用 DPPO 微调最后 K'=10 个去噪步，超参数按 Table A7/A9。
   2. 对照组是 Gaussian-MLP 加 PPO，每组 3 个 seed。目标是复现 Fig.5 / A9 中接近 100% 的趋势。
   3. 消融一：critic 用 $\tilde V(s)$ 还是 $V(s,a^1)$（Fig.A2）。
-  4. 消融二：在 Square 上比较 $\sigma^{\text{exp}}_{\min}$ 取 0.01 和 0.1，预期 0.01 会崩（Fig.A4）。
+  4. 消融二：在 Square 上比较 $\sigma^{\text{exp}}_ {\min}$ 取 0.01 和 0.1，预期 0.01 会崩（Fig.A4）。
 - **怎样算复现成功**：Can 的成功率接近 100%；σ 下限的消融复现出崩溃和不崩溃的分界。
 
 ### ③ SimpleVLA-RL：VLA RL，也是 world model 内 RL 的直接 baseline（难度 medium，算力门槛高）
