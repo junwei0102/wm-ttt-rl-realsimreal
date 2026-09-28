@@ -1,0 +1,10 @@
+DataSet/
+# 论文原文不进版本库（体积大 + 版权）：只提交 notes.md / README.md / index.json
+related_work/**/paper.pdf
+related_work/**/source/
+experiment/*/checkpoints/
+experiment/*/*.pt
+*.orig
+.shot-tmp/
+__pycache__/
+.DS_Store
